@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Viewer Test</title>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 20px; 
+            background: #f0f0f0; 
+        }
+        .test-container {
+            max-width: none !important;
+            width: 100% !important;
+            overflow: visible !important;
+            height: auto !important;
+        }
+        .test-box {
+            width: 1200px;
+            height: 800px;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            border: 3px solid #333;
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>PDF Display Test</h1>
+    <p>This tests if large content displays without constraints:</p>
+    
+    <div class="test-container">
+        <div class="test-box">
+            Large Content Box (1200x800px)<br>
+            This should be fully visible without cropping
+        </div>
+    </div>
+    
+    <p>If you can see this entire colored box without horizontal scrolling being needed on a smaller screen, the constraints are working properly.</p>
+    
+    <a href="index.html">Back to PDF Viewer</a>
+</body>
+</html>

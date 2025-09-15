@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poetry Analysis - Citation Extractor</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/text_layer_builder.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>Poetry Analysis Tool</h1>
+            <p>Structural analysis of poetry texts from PDF documents</p>
+        </header>
+
+        <main class="main-content" style="max-width: none !important; width: 100% !important;">
+            <div class="upload-section" id="uploadSection">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📄</div>
+                    <h3>Upload PDF Document</h3>
+                    <p>Select a PDF file containing poetry texts</p>
+                    <input type="file" id="fileInput" accept=".pdf" hidden>
+                    <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+                        Choose PDF File
+                    </button>
+                </div>
+            </div>
+
+            <div class="workspace" id="workspace" style="display: none; height: auto !important; min-height: calc(100vh - 200px) !important; align-items: flex-start !important;">
+                <div class="pdf-viewer-container" style="height: auto !important; overflow: visible !important;">
+                    <div class="pdf-controls">
+                        <div class="navigation-controls">
+                            <button id="prevPage" disabled>← Prev</button>
+                            <div class="page-input-group">
+                                <span>Page</span>
+                                <input type="number" id="pageInput" min="1" max="1" value="1">
+                                <span>of</span>
+                                <span id="totalPages">1</span>
+                                <button id="goToPage">Go</button>
+                            </div>
+                            <button id="nextPage" disabled>Next →</button>
+                        </div>
+                        <div class="zoom-controls">
+                            <button id="zoomOut">-</button>
+                            <select id="zoomSelect">
+                                <option value="50">50%</option>
+                                <option value="75">75%</option>
+                                <option value="100" selected>100%</option>
+                                <option value="125">125%</option>
+                                <option value="150">150%</option>
+                                <option value="200">200%</option>
+                                <option value="300">300%</option>
+                                <option value="fit-width">Fit Width</option>
+                            </select>
+                            <button id="zoomIn">+</button>
+                        </div>
+                    </div>
+                    <div class="pdf-viewer" id="pdfViewer" style="height: auto !important; max-height: none !important; flex: 1 1 auto !important; min-height: 400px !important;">
+                        <div class="loading-indicator" id="loadingIndicator" style="display: none;">
+                            <div class="spinner"></div>
+                            <span>Loading page...</span>
+                        </div>
+                        <div class="pdf-container" id="pdfContainer" style="user-select: text; -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text; overflow: visible !important; width: 100% !important; min-width: fit-content !important;">
+                            <!-- Pages will be dynamically added here -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="data-panel" style="position: sticky !important; top: 2rem !important; max-height: calc(100vh - 4rem) !important; overflow-y: auto !important; align-self: flex-start !important;">
+                    <div class="metadata-panel" id="metadataPanel" style="display: none;">
+                        <h3>Document Information</h3>
+                        <div class="metadata-inputs">
+                            <div class="input-group">
+                                <label for="bookTitle">Book Title:</label>
+                                <input type="text" id="bookTitle" placeholder="Detected from PDF...">
+                            </div>
+                            <div class="input-group">
+                                <label for="bookAuthor">Author:</label>
+                                <input type="text" id="bookAuthor" placeholder="Detected from PDF...">
+                            </div>
+                            <div class="input-group">
+                                <label for="bookSubject">Subject:</label>
+                                <input type="text" id="bookSubject" placeholder="Detected from PDF...">
+                            </div>
+                            <div class="input-group">
+                                <label for="bookYear">Year:</label>
+                                <input type="number" id="bookYear" placeholder="YYYY">
+                            </div>
+                            <div class="metadata-actions">
+                                <button id="updateMetadata">Update Info</button>
+                                <button id="resetMetadata">Reset</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="selection-inputs">
+                        <h3>Text Selection</h3>
+                        <div class="input-group">
+                            <label for="targetText">Target Poem Text:</label>
+                            <textarea id="targetText" placeholder="Click to select text from the PDF..."></textarea>
+                        </div>
+                        <div class="input-group">
+                            <label for="sourceInfo">Source Influence Info:</label>
+                            <textarea id="sourceInfo" placeholder="Click to select footnote or reference..."></textarea>
+                        </div>
+                        <div class="action-buttons">
+                            <button id="saveData" disabled>Save Pair</button>
+                            <button id="clearData">Clear</button>
+                        </div>
+                    </div>
+
+                    <div class="data-list">
+                        <h3>Collected Data</h3>
+                        <div class="data-count">0 pairs saved</div>
+                        <div id="savedData" class="saved-data-container"></div>
+                        <div class="export-controls">
+                            <button id="exportJson">Export as JSON</button>
+                            <button id="exportCsv">Export as CSV</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <div class="status-bar" id="statusBar">
+            Ready to upload PDF...
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
