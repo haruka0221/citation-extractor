@@ -4,7 +4,7 @@ A web-based application for structural analysis of poetry texts from PDF documen
 
 ## Features
 
-### Core Functionality ✅ ALL WORKING
+### Core Functionality ✅ 
 - **PDF Upload & Display**: Upload and view PDF documents with smooth navigation
 - **TEXT SELECTION (FIXED)**: Proper text layer implementation - click and drag to select text from PDF
 - **Smart Detection**: Automatically identifies footnote references vs. poem text
@@ -12,13 +12,13 @@ A web-based application for structural analysis of poetry texts from PDF documen
 - **Export Options**: JSON and CSV export formats
 - **Responsive Design**: Works on desktop and mobile devices
 
-### Enhanced Navigation ✅ FULLY IMPLEMENTED
+### Enhanced Navigation ✅ 
 - **Direct Page Input**: Type page number and press Enter or click "Go"
 - **Page Validation**: Input validation with min/max constraints
 - **Multiple Navigation Methods**: Next/Prev buttons, keyboard arrows, Page Up/Down keys
 - **Scroll-based Navigation**: Auto-advance pages when scrolling to bottom
 
-### Zoom Functionality ✅ COMPLETELY FIXED
+### Zoom Functionality ✅ 
 - **Full Zoom Control**: Zoom in/out with proper PDF scaling (50% to 300%)
 - **Fit Width**: Auto-fit PDF to container width
 - **Keyboard Shortcuts**: Ctrl/Cmd + Plus/Minus for zoom, Ctrl/Cmd + 0 for fit width
