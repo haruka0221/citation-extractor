@@ -573,7 +573,7 @@ This text should be fully selectable. Try highlighting different portions to tes
     processSelectedTextAlternating(text) {
         const targetTextArea = document.getElementById('targetText');
         const sourceInfoArea = document.getElementById('sourceInfo');
-        
+
         // Alternate between target and source fields
         if (this.selectionCount % 2 === 0) {
             // Even count: goes to target field
@@ -589,6 +589,11 @@ This text should be fully selectable. Try highlighting different portions to tes
             this.updateStatus(`✓ Source info captured! (Selection ${this.selectionCount + 1}) - Next selection will go to Target Text.`);
             sourceInfoArea.style.borderColor = '#48bb78';
             targetTextArea.style.borderColor = '#e2e8f0';
+
+            // Trigger citation controls update for source info
+            if (window.citationIntegration) {
+                window.citationIntegration.handleSourceInfoChange();
+            }
         }
         
         this.selectionCount++;
@@ -1180,6 +1185,8 @@ let app;
 
 document.addEventListener('DOMContentLoaded', () => {
     app = new PoetryAnalysisTool();
+    // Make app globally available for citation integration
+    window.poetryApp = app;
     console.log('Poetry Analysis Tool initialized');
     console.log('Container constraints removed - full PDF display enabled');
 });

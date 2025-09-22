@@ -104,6 +104,13 @@
                         <div class="input-group">
                             <label for="sourceInfo">Source Influence Info:</label>
                             <textarea id="sourceInfo" placeholder="Click to select footnote or reference..."></textarea>
+                            <div class="citation-controls" id="citationControls" style="display: none;">
+                                <button id="findSourcesBtn" class="find-sources-btn">
+                                    <span class="btn-icon">🔍</span>
+                                    Find Sources
+                                </button>
+                                <div class="citation-status" id="citationStatus"></div>
+                            </div>
                         </div>
                         <div class="action-buttons">
                             <button id="saveData" disabled>Save Pair</button>
@@ -129,6 +136,76 @@
         </div>
     </div>
 
+    <!-- Citation Candidates Modal -->
+    <div class="modal-overlay" id="citationModal" style="display: none;">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h2>Citation Sources Found</h2>
+                <button class="modal-close" id="closeCitationModal">&times;</button>
+            </div>
+
+            <div class="modal-content">
+                <div class="citation-query">
+                    <strong>Looking for:</strong> <span id="queriedCitation"></span>
+                </div>
+
+                <div class="source-type-tabs">
+                    <button class="tab-btn active" data-tab="all">All Sources</button>
+                    <button class="tab-btn" data-tab="literature">Literature</button>
+                    <button class="tab-btn" data-tab="bible">Bible</button>
+                </div>
+
+                <div class="candidates-container" id="candidatesContainer">
+                    <div class="loading-candidates" id="loadingCandidates">
+                        <div class="spinner"></div>
+                        <span>Searching sources...</span>
+                    </div>
+                    <div class="candidates-list" id="candidatesList"></div>
+                    <div class="no-candidates" id="noCandidates" style="display: none;">
+                        <div class="no-results-icon">📚</div>
+                        <h3>No sources found</h3>
+                        <p>No matching passages were found for this citation. Try editing the citation text or check for typos.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn-secondary" id="cancelCitationLookup">Cancel</button>
+                <button class="btn-primary" id="retryLookup">Try Different Text</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Selection Confirmation Dialog -->
+    <div class="modal-overlay" id="confirmationModal" style="display: none;">
+        <div class="modal-container small">
+            <div class="modal-header">
+                <h2>Confirm Source Selection</h2>
+                <button class="modal-close" id="closeConfirmationModal">&times;</button>
+            </div>
+
+            <div class="modal-content">
+                <div class="selection-summary">
+                    <div class="summary-section">
+                        <h4>Selected Source:</h4>
+                        <div class="source-preview" id="selectedSourcePreview"></div>
+                    </div>
+                    <div class="summary-section">
+                        <h4>Target Text:</h4>
+                        <div class="target-preview" id="targetTextPreview"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn-secondary" id="cancelSelection">Cancel</button>
+                <button class="btn-primary" id="confirmSelection">Confirm & Save</button>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
+    <script src="citation-integration.js"></script>
+    <script src="extractLineRange.js"></script>
 </body>
 </html>

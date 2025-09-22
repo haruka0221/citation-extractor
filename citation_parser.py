@@ -48,7 +48,7 @@ class CitationParser:
 
         # Literary citation patterns
         patterns['literature_simple'] = re.compile(
-            r'([A-Za-z\s]+?)\s+(\d+)(?:-(\d+))?$',
+            r'([A-Za-z\s]+?)\.?\s+(\d+)(?:-(\d+))?\.?$',
             re.IGNORECASE
         )
 

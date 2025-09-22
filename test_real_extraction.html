@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Real Citation Extraction</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-input {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 400px;
+        }
+        .test-button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .test-button:hover {
+            background: #005a87;
+        }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #007cba;
+            white-space: pre-wrap;
+        }
+        .error {
+            border-left-color: #d32f2f;
+            background: #ffebee;
+        }
+        .success {
+            border-left-color: #388e3c;
+            background: #e8f5e8;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 Real Citation Extraction Test</h1>
+        <p>Test the citation system with actual cleaned files</p>
+
+        <div>
+            <label for="citationInput">Citation to test:</label><br>
+            <input type="text" id="citationInput" class="test-input"
+                   value="ABSALOM AND ACHITOPHEL. 7-9"
+                   placeholder="Enter citation like 'absalom and achitophel 7-9'">
+        </div>
+
+        <button class="test-button" onclick="testCitation()">Test Citation Extraction</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script src="citation-integration.js"></script>
+    <script>
+        // Create a simple test instance
+        const testIntegration = new CitationIntegration();
+
+        async function testCitation() {
+            const citation = document.getElementById('citationInput').value.trim();
+            const resultsDiv = document.getElementById('results');
+
+            if (!citation) {
+                showResult('❌ Please enter a citation to test', 'error');
+                return;
+            }
+
+            console.log('🧪 TESTING CITATION:', citation);
+            resultsDiv.innerHTML = '<div class="result">🔄 Testing citation extraction...</div>';
+
+            try {
+                // Test the citation parsing
+                const parsed = testIntegration.parseCitationText(citation);
+                console.log('📋 Parsed result:', parsed);
+
+                if (!parsed) {
+                    showResult('❌ Failed to parse citation', 'error');
+                    return;
+                }
+
+                showResult(`✅ Citation parsed successfully:
+Work: "${parsed.work}"
+Lines: ${parsed.startLine}-${parsed.endLine}`, 'success');
+
+                // Test file mapping
+                const filePath = testIntegration.findCleanedFile(parsed.work);
+                if (!filePath) {
+                    showResult(`❌ No file mapping found for work: "${parsed.work}"`, 'error');
+                    return;
+                }
+
+                console.log('📂 File path:', filePath);
+
+                // Test file loading and extraction
+                try {
+                    const fileContent = await testIntegration.fetchFileContent(filePath);
+                    const lines = fileContent.split('\n').filter(line => line.trim() !== '');
+
+                    console.log(`📏 File loaded: ${lines.length} lines`);
+
+                    // Extract the requested lines
+                    const extractedLines = lines.slice(parsed.startLine - 1, parsed.endLine);
+                    const extractedText = extractedLines.join('\n');
+
+                    let result = `✅ File extraction successful:
+File: ${filePath}
+Total lines: ${lines.length}
+Requested: lines ${parsed.startLine}-${parsed.endLine}
+
+=== EXTRACTED CONTENT ===
+`;
+
+                    extractedLines.forEach((line, index) => {
+                        const lineNum = parsed.startLine + index;
+                        result += `Line ${lineNum}: "${line}"\n`;
+                    });
+
+                    result += `
+=== FINAL TEXT ===
+${extractedText}
+
+🎉 SUCCESS: Citation extraction working correctly!`;
+
+                    showResult(result, 'success');
+
+                } catch (fileError) {
+                    console.error('File loading error:', fileError);
+                    showResult(`❌ File loading failed: ${fileError.message}`, 'error');
+                }
+
+            } catch (error) {
+                console.error('Test error:', error);
+                showResult(`❌ Test failed: ${error.message}`, 'error');
+            }
+        }
+
+        function showResult(text, type) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `<div class="result ${type}">${text}</div>`;
+        }
+
+        // Test some examples on page load
+        window.addEventListener('load', () => {
+            console.log('🧪 Test page loaded');
+            console.log('Available test cases:');
+            console.log('- "absalom and achitophel 7-9"');
+            console.log('- "absalom 1-5"');
+            console.log('- "achitophel 10-12"');
+        });
+    </script>
+</body>
+</html>
