@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Poetry Analysis - Citation Extractor</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="full-text-viewer.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/text_layer_builder.css">
 </head>
@@ -204,7 +205,58 @@
         </div>
     </div>
 
+    <!-- Full-Text Viewer Modal -->
+    <div class="full-text-modal" id="fullTextModal" style="display: none;">
+        <div class="full-text-modal-container">
+            <div class="full-text-header">
+                <h3 id="viewer-title">Select Text Range</h3>
+                <div class="viewer-instructions" id="viewer-instructions">
+                    <div class="instruction-item">📍 Click line to start selection</div>
+                    <div class="instruction-item">⌨️ Shift+Click to extend range</div>
+                    <div class="instruction-item">📏 Loading...</div>
+                </div>
+            </div>
+
+            <div class="text-search-container" id="textSearchContainer" style="display: none;">
+                <input type="text" class="text-search-input" id="textSearchInput"
+                       placeholder="Search within text...">
+                <div class="search-results-info" id="searchResultsInfo"></div>
+            </div>
+
+            <div class="text-viewer-container">
+                <div id="text-viewer" class="text-viewer-loading">
+                    <div class="loading-spinner"></div>
+                    <div>Loading full text...</div>
+                </div>
+            </div>
+
+            <div class="selection-info-container">
+                <div id="selection-info">
+                    <div class="no-selection">
+                        <span class="selection-icon">📄</span>
+                        Click lines to make selection
+                    </div>
+                </div>
+            </div>
+
+            <div class="full-text-actions">
+                <div class="action-group">
+                    <button class="btn cancel-btn" id="cancelFullTextViewer">Cancel</button>
+                </div>
+                <div class="action-group">
+                    <button class="btn confirm-btn" id="confirm-selection" disabled>
+                        Confirm Selection
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
+    <script src="citation-catalog.js"></script>
+    <script src="dynamic-work-catalog.js"></script>
+    <script src="csv-catalog-system.js"></script>
+    <script src="full-text-viewer.js"></script>
     <script src="citation-integration.js"></script>
     <script src="extractLineRange.js"></script>
 </body>

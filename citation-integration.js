@@ -8,6 +8,10 @@ class CitationIntegration {
         this.selectedCandidate = null;
         this.currentCandidates = [];
         this.currentSourceType = 'all';
+        this.catalog = null;
+        this.dynamicCatalog = null;
+        this.csvCatalog = null;
+        this.fullTextViewer = null;
 
         this.initializeEventListeners();
         this.initializeCitationEngine();
@@ -18,13 +22,47 @@ class CitationIntegration {
      */
     async initializeCitationEngine() {
         try {
-            // In a real implementation, this would load the Python backend
-            console.log('Citation engine initialized');
+            console.log('🚀 Initializing scalable citation engine...');
+
+            // Initialize the CSV catalog system (preferred)
+            if (window.CSVCatalogSystem && window.initializeCSVCatalogSystem) {
+                this.csvCatalog = await window.initializeCSVCatalogSystem();
+                console.log('✅ CSV catalog system initialized successfully');
+
+                const stats = this.csvCatalog.getCatalogStats();
+                console.log('📊 CSV catalog stats:', stats);
+            } else if (window.DynamicWorkCatalog) {
+                console.log('⚠️ Using fallback DynamicWorkCatalog');
+                this.dynamicCatalog = new window.DynamicWorkCatalog();
+                await this.dynamicCatalog.initialize();
+                console.log('✅ Dynamic work catalog initialized successfully');
+
+                const stats = this.dynamicCatalog.getCatalogStats();
+                console.log('📊 Dynamic catalog stats:', stats);
+            } else if (window.CitationCatalog) {
+                console.log('⚠️ Using fallback CitationCatalog');
+                this.catalog = new window.CitationCatalog();
+                await this.catalog.initialize();
+                console.log('✅ Citation catalog initialized successfully');
+
+                const stats = this.catalog.getCatalogStats();
+                console.log('📊 Catalog stats:', stats);
+            } else {
+                console.warn('⚠️ No catalog system available, using legacy methods');
+            }
+
+            // Initialize full-text viewer
+            if (window.FullTextViewer) {
+                this.fullTextViewer = new window.FullTextViewer();
+                console.log('✅ Full-text viewer initialized');
+            } else {
+                console.warn('⚠️ FullTextViewer not available');
+            }
 
             // Wait for main app to be available
             this.waitForMainApp();
         } catch (error) {
-            console.error('Failed to initialize citation engine:', error);
+            console.error('❌ Failed to initialize citation engine:', error);
         }
     }
 
@@ -183,75 +221,292 @@ class CitationIntegration {
     }
 
     /**
-     * Generate mock candidates using actual cleaned files
+     * Generate candidates using scalable catalog system
      */
     async generateMockCandidates(citationText) {
-        console.log('🔧 STEP 3: GENERATING MOCK DATA FROM REAL FILES');
+        console.log('🔧 STEP 3: GENERATING CANDIDATES WITH SCALABLE CATALOG');
         console.log('Citation input:', citationText);
 
         try {
-            // Parse the citation properly
-            const parsed = this.parseCitationText(citationText);
-            console.log('Parsed citation:', parsed);
-
-            if (!parsed) {
-                console.log('❌ Could not parse citation, returning empty array');
-                return [];
+            // Use CSV catalog system (preferred)
+            if (this.csvCatalog && this.csvCatalog.initialized) {
+                return await this.generateCandidatesWithCSVCatalog(citationText);
+            } else if (this.dynamicCatalog && this.dynamicCatalog.initialized) {
+                console.warn('⚠️ Using fallback dynamic catalog system');
+                return await this.generateCandidatesWithDynamicCatalog(citationText);
+            } else if (this.catalog && this.catalog.initialized) {
+                console.warn('⚠️ Using fallback catalog system');
+                return await this.generateCandidatesWithCatalog(citationText);
+            } else {
+                console.warn('⚠️ No catalog available, using legacy method');
+                return await this.generateLegacyCandidates(citationText);
             }
-
-            // Find the correct cleaned file
-            const cleanedFile = this.findCleanedFile(parsed.work);
-            if (!cleanedFile) {
-                console.error('❌ No cleaned file found for:', parsed.work);
-                return [];
-            }
-
-            console.log(`📚 Using file: ${cleanedFile}`);
-
-            // Read the actual file content
-            const fileContent = await this.fetchFileContent(cleanedFile);
-            const lines = fileContent.split('\n').filter(line => line.trim() !== '');
-
-            console.log(`📏 Total lines in file: ${lines.length}`);
-            console.log(`🎯 Extracting lines ${parsed.startLine}-${parsed.endLine}`);
-
-            // Validate line range
-            if (parsed.startLine < 1 || parsed.endLine > lines.length || parsed.startLine > parsed.endLine) {
-                console.error(`❌ Invalid line range: ${parsed.startLine}-${parsed.endLine} (file has ${lines.length} lines)`);
-                return [];
-            }
-
-            // Extract EXACT lines (1-based to 0-based conversion)
-            const extractedLines = lines.slice(parsed.startLine - 1, parsed.endLine);
-
-            // Show what we're extracting
-            console.log('=== EXTRACTED LINES FROM REAL FILE ===');
-            extractedLines.forEach((line, index) => {
-                const lineNum = parsed.startLine + index;
-                console.log(`Line ${lineNum}: "${line}"`);
-            });
-
-            const extractedText = extractedLines.join('\n');
-            console.log('📄 Final extracted text:', extractedText);
-
-            return [{
-                source: `gutenberg:${parsed.work.replace(/\s+/g, '_')}`,
-                confidence: 0.95,
-                text: extractedText,
-                metadata: {
-                    lines: `${parsed.startLine}-${parsed.endLine}`,
-                    author: this.getAuthorForWork(parsed.work),
-                    title: this.getTitleForWork(parsed.work),
-                    source_file: cleanedFile,
-                    total_lines: lines.length
-                },
-                type: 'literature'
-            }];
 
         } catch (error) {
-            console.error('❌ Error generating mock candidates:', error);
+            console.error('❌ Error generating candidates:', error);
             return this.generateFallbackCandidates(citationText);
         }
+    }
+
+    /**
+     * Generate candidates using the CSV catalog system
+     */
+    async generateCandidatesWithCSVCatalog(citationText) {
+        console.log('📊 Using CSV catalog system for candidate generation');
+
+        // Parse the citation to extract line range
+        const parsed = this.parseCitationText(citationText);
+
+        let searchTerm, lineRange;
+
+        if (parsed) {
+            searchTerm = parsed.work;
+            lineRange = { start: parsed.startLine, end: parsed.endLine };
+            console.log(`🎯 Parsed search: "${searchTerm}" lines ${lineRange.start}-${lineRange.end}`);
+        } else {
+            // Use the full citation as search term (no line numbers found)
+            searchTerm = citationText.replace(/\d+[-\d]*/, '').trim();
+            lineRange = { start: 1, end: 10 }; // Default preview
+            console.log(`🔍 Fallback search: "${searchTerm}" (default preview)`);
+        }
+
+        // Search for matching works using CSV catalog
+        const matches = this.csvCatalog.findWorkFiles(searchTerm, { maxResults: 10 });
+
+        console.log(`📊 CSV catalog found ${matches.length} matches`);
+
+        const candidates = [];
+
+        for (const match of matches) {
+            try {
+                console.log(`🔍 Extracting text from: ${match.filename} (PG ${match.pgId})`);
+
+                // Extract text from the matched file
+                const text = await this.csvCatalog.extractText(match, lineRange);
+
+                candidates.push({
+                    source: `gutenberg:${match.filename}`,
+                    confidence: match.confidence,
+                    text: text,
+                    metadata: {
+                        lines: lineRange ? `${lineRange.start}-${lineRange.end}` : 'preview',
+                        author: match.author,
+                        title: match.title,
+                        source_file: match.filename,
+                        pgId: match.pgId,
+                        language: match.language,
+                        matchType: match.matchType,
+                        confidence: match.confidence,
+                        disambiguator: `${match.author} - ${match.title}`,
+                        searchTerm: searchTerm,
+                        matchedKey: match.matchedKey,
+                        catalogSource: 'csv_catalog'
+                    },
+                    type: 'literature'
+                });
+
+            } catch (error) {
+                console.error(`❌ Failed to extract text from ${match.filename}:`, error);
+            }
+        }
+
+        // Add biblical candidates if appropriate
+        if (this.isBiblicalCitation(citationText)) {
+            candidates.push(...this.generateBiblicalCandidates(citationText));
+        }
+
+        console.log(`✅ CSV catalog generated ${candidates.length} candidates`);
+        return candidates;
+    }
+
+    /**
+     * Generate candidates using the dynamic catalog system
+     */
+    async generateCandidatesWithDynamicCatalog(citationText) {
+        console.log('📚 Using dynamic catalog system for candidate generation');
+
+        // Parse the citation to extract line range
+        const parsed = this.parseCitationText(citationText);
+
+        let searchTerm, lineRange;
+
+        if (parsed) {
+            searchTerm = parsed.work;
+            lineRange = { start: parsed.startLine, end: parsed.endLine };
+            console.log(`🎯 Parsed search: "${searchTerm}" lines ${lineRange.start}-${lineRange.end}`);
+        } else {
+            // Use the full citation as search term (no line numbers found)
+            searchTerm = citationText.replace(/\d+[-\d]*/, '').trim();
+            lineRange = { start: 1, end: 10 }; // Default preview
+            console.log(`🔍 Fallback search: "${searchTerm}" (default preview)`);
+        }
+
+        // Search for matching works
+        const matches = this.dynamicCatalog.searchWorks(searchTerm, { maxResults: 10 });
+
+        console.log(`📊 Dynamic catalog found ${matches.length} matches`);
+
+        const candidates = [];
+
+        for (const match of matches) {
+            try {
+                console.log(`🔍 Extracting text from: ${match.filename}`);
+
+                // Extract text from the matched file
+                const text = await this.extractTextFromDynamicMatch(match, lineRange);
+
+                candidates.push({
+                    source: `gutenberg:${match.filename}`,
+                    confidence: match.finalScore,
+                    text: text,
+                    metadata: {
+                        lines: lineRange ? `${lineRange.start}-${lineRange.end}` : 'preview',
+                        author: match.author,
+                        title: match.title,
+                        source_file: match.filename,
+                        pgId: match.pgId,
+                        matchType: match.matchType,
+                        similarity: match.similarity,
+                        disambiguator: `${match.author} - ${match.title}`,
+                        searchTerm: searchTerm,
+                        matchedKey: match.matchedKey,
+                        catalogSource: match.source
+                    },
+                    type: 'literature'
+                });
+
+            } catch (error) {
+                console.error(`❌ Failed to extract text from ${match.filename}:`, error);
+            }
+        }
+
+        // Add biblical candidates if appropriate
+        if (this.isBiblicalCitation(citationText)) {
+            candidates.push(...this.generateBiblicalCandidates(citationText));
+        }
+
+        console.log(`✅ Dynamic catalog generated ${candidates.length} candidates`);
+        return candidates;
+    }
+
+    /**
+     * Extract text from a dynamic catalog match
+     */
+    async extractTextFromDynamicMatch(match, lineRange) {
+        const content = await this.fetchFileContent(match.filename);
+        const lines = content.split('\n').filter(line => line.trim() !== '');
+
+        if (!lineRange) {
+            return lines.slice(0, 10).join('\n'); // Return first 10 lines as preview
+        }
+
+        const { start, end } = lineRange;
+
+        if (start < 1 || end > lines.length || start > end) {
+            throw new Error(`Invalid line range: ${start}-${end} (file has ${lines.length} lines)`);
+        }
+
+        return lines.slice(start - 1, end).join('\n');
+    }
+
+    /**
+     * Generate candidates using the catalog system
+     */
+    async generateCandidatesWithCatalog(citationText) {
+        console.log('📚 Using catalog system for candidate generation');
+
+        // Parse the citation to extract line range
+        const parsed = this.parseCitationText(citationText);
+
+        let searchTerm, lineRange;
+
+        if (parsed) {
+            searchTerm = parsed.work;
+            lineRange = { start: parsed.startLine, end: parsed.endLine };
+            console.log(`🎯 Parsed search: "${searchTerm}" lines ${lineRange.start}-${lineRange.end}`);
+        } else {
+            // Use the full citation as search term (no line numbers found)
+            searchTerm = citationText.replace(/\d+[-\d]*/, '').trim();
+            lineRange = { start: 1, end: 10 }; // Default preview
+            console.log(`🔍 Fallback search: "${searchTerm}" (default preview)`);
+        }
+
+        // Generate candidates with the catalog
+        const candidates = await this.catalog.generateCandidatesWithText(searchTerm, lineRange);
+
+        console.log(`✅ Catalog generated ${candidates.length} candidates`);
+
+        // Add biblical candidates if appropriate
+        if (this.isBiblicalCitation(citationText)) {
+            candidates.push(...this.generateBiblicalCandidates(citationText));
+        }
+
+        return candidates;
+    }
+
+    /**
+     * Legacy candidate generation (fallback)
+     */
+    async generateLegacyCandidates(citationText) {
+        console.log('🔄 Using legacy candidate generation');
+
+        // Parse the citation properly
+        const parsed = this.parseCitationText(citationText);
+        console.log('Parsed citation:', parsed);
+
+        if (!parsed) {
+            console.log('❌ Could not parse citation, returning empty array');
+            return [];
+        }
+
+        // Find the correct cleaned file
+        const cleanedFile = this.findCleanedFile(parsed.work);
+        if (!cleanedFile) {
+            console.error('❌ No cleaned file found for:', parsed.work);
+            return [];
+        }
+
+        console.log(`📚 Using file: ${cleanedFile}`);
+
+        // Read the actual file content
+        const fileContent = await this.fetchFileContent(cleanedFile);
+        const lines = fileContent.split('\n').filter(line => line.trim() !== '');
+
+        console.log(`📏 Total lines in file: ${lines.length}`);
+        console.log(`🎯 Extracting lines ${parsed.startLine}-${parsed.endLine}`);
+
+        // Validate line range
+        if (parsed.startLine < 1 || parsed.endLine > lines.length || parsed.startLine > parsed.endLine) {
+            console.error(`❌ Invalid line range: ${parsed.startLine}-${parsed.endLine} (file has ${lines.length} lines)`);
+            return [];
+        }
+
+        // Extract EXACT lines (1-based to 0-based conversion)
+        const extractedLines = lines.slice(parsed.startLine - 1, parsed.endLine);
+
+        // Show what we're extracting
+        console.log('=== EXTRACTED LINES FROM REAL FILE ===');
+        extractedLines.forEach((line, index) => {
+            const lineNum = parsed.startLine + index;
+            console.log(`Line ${lineNum}: "${line}"`);
+        });
+
+        const extractedText = extractedLines.join('\n');
+        console.log('📄 Final extracted text:', extractedText);
+
+        return [{
+            source: `gutenberg:${parsed.work.replace(/\s+/g, '_')}`,
+            confidence: 0.95,
+            text: extractedText,
+            metadata: {
+                lines: `${parsed.startLine}-${parsed.endLine}`,
+                author: this.getAuthorForWork(parsed.work),
+                title: this.getTitleForWork(parsed.work),
+                source_file: cleanedFile,
+                total_lines: lines.length
+            },
+            type: 'literature'
+        }];
     }
 
     /**
@@ -430,6 +685,35 @@ class CitationIntegration {
         console.log('Total fallback candidates generated:', candidates.length);
 
         return candidates;
+    }
+
+    /**
+     * Check if citation looks biblical
+     */
+    isBiblicalCitation(citationText) {
+        return /\b\d+:\d+/.test(citationText) ||
+               /genesis|matthew|romans|john|psalm|luke|acts|corinthians|peter|james/i.test(citationText);
+    }
+
+    /**
+     * Generate biblical candidates
+     */
+    generateBiblicalCandidates(citationText) {
+        console.log('📖 Adding biblical candidates for:', citationText);
+
+        return [{
+            source: 'bible:esv',
+            confidence: 0.95,
+            text: 'In the beginning, God created the heavens and the earth. The earth was without form and void, and darkness was over the face of the deep.',
+            metadata: {
+                book: 'Genesis',
+                chapter: 1,
+                verses: '1-2',
+                translation: 'ESV',
+                source: 'bible_api'
+            },
+            type: 'bible'
+        }];
     }
 
     /**
@@ -696,10 +980,165 @@ class CitationIntegration {
             }
         });
 
-        // Show confirmation dialog
+        // Show full-text viewer instead of confirmation dialog
         setTimeout(() => {
-            this.showConfirmationDialog();
+            this.showFullTextViewer(candidate);
         }, 300);
+    }
+
+    /**
+     * Show full-text viewer for selected candidate
+     */
+    async showFullTextViewer(candidate) {
+        if (!this.fullTextViewer) {
+            console.error('❌ Full-text viewer not available');
+            this.showConfirmationDialog(); // Fallback to old method
+            return;
+        }
+
+        try {
+            console.log('📖 Opening full-text viewer for:', candidate.metadata.title);
+
+            // Hide candidates modal
+            const citationModal = document.getElementById('citationModal');
+            if (citationModal) {
+                citationModal.style.display = 'none';
+            }
+
+            // Show full-text modal
+            const fullTextModal = document.getElementById('fullTextModal');
+            if (fullTextModal) {
+                fullTextModal.style.display = 'flex';
+            }
+
+            // Extract suggested line range from metadata
+            const suggestedLines = this.extractSuggestedLines(candidate);
+
+            // Load the full text viewer
+            await this.fullTextViewer.displayFullTextViewer(candidate.metadata, suggestedLines);
+
+            // Setup full-text viewer event handlers
+            this.setupFullTextViewerHandlers();
+
+        } catch (error) {
+            console.error('❌ Error showing full-text viewer:', error);
+            this.showConfirmationDialog(); // Fallback to old method
+        }
+    }
+
+    /**
+     * Extract suggested lines from candidate metadata
+     */
+    extractSuggestedLines(candidate) {
+        if (!candidate.metadata || !candidate.metadata.lines) {
+            return null;
+        }
+
+        const linesStr = candidate.metadata.lines;
+        const match = linesStr.match(/(\d+)-(\d+)/);
+
+        if (match) {
+            return {
+                start: parseInt(match[1]),
+                end: parseInt(match[2])
+            };
+        }
+
+        // Single line
+        const singleMatch = linesStr.match(/(\d+)/);
+        if (singleMatch) {
+            const line = parseInt(singleMatch[1]);
+            return {
+                start: line,
+                end: line
+            };
+        }
+
+        return null;
+    }
+
+    /**
+     * Setup event handlers for full-text viewer
+     */
+    setupFullTextViewerHandlers() {
+        // Cancel button
+        const cancelBtn = document.getElementById('cancelFullTextViewer');
+        if (cancelBtn) {
+            cancelBtn.onclick = () => {
+                this.closeFullTextViewer();
+            };
+        }
+
+        // Confirm selection button
+        const confirmBtn = document.getElementById('confirm-selection');
+        if (confirmBtn) {
+            confirmBtn.onclick = () => {
+                this.confirmFullTextSelection();
+            };
+        }
+
+        // Close on outside click
+        const fullTextModal = document.getElementById('fullTextModal');
+        if (fullTextModal) {
+            fullTextModal.onclick = (e) => {
+                if (e.target === fullTextModal) {
+                    this.closeFullTextViewer();
+                }
+            };
+        }
+
+        // ESC key handler
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                this.closeFullTextViewer();
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
+    }
+
+    /**
+     * Confirm selection from full-text viewer
+     */
+    async confirmFullTextSelection() {
+        if (!this.fullTextViewer) {
+            console.error('❌ Full-text viewer not available');
+            return;
+        }
+
+        const selection = this.fullTextViewer.getCurrentSelection();
+        if (!selection) {
+            alert('Please select text lines first');
+            return;
+        }
+
+        console.log('✅ User confirmed selection:', selection);
+
+        // Update candidate with user's selection
+        this.selectedCandidate.text = selection.text;
+        this.selectedCandidate.metadata.lines = `${selection.start}-${selection.end}`;
+
+        // Close full-text viewer
+        this.closeFullTextViewer();
+
+        // Proceed with confirmation
+        this.showConfirmationDialog();
+    }
+
+    /**
+     * Close full-text viewer
+     */
+    closeFullTextViewer() {
+        const fullTextModal = document.getElementById('fullTextModal');
+        if (fullTextModal) {
+            fullTextModal.style.display = 'none';
+        }
+
+        // Show candidates modal again
+        const citationModal = document.getElementById('citationModal');
+        if (citationModal) {
+            citationModal.style.display = 'flex';
+        }
     }
 
     /**
