@@ -1462,6 +1462,9 @@ class CitationIntegration {
     }
 }
 
+// Export CitationIntegration class to window (CRITICAL for patching)
+window.CitationIntegration = CitationIntegration;
+
 // Initialize citation integration when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.citationIntegration = new CitationIntegration();
