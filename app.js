@@ -12,6 +12,7 @@ class PoetryAnalysisTool {
         };
         this.isLoading = false;
         this.selectionCount = 0; // Track alternating selections
+        this.autoFillEnabled = true;
         this.scrollThrottle = null;
         this.renderedPages = new Set(); // Track which pages are rendered
         this.pageElements = new Map(); // Store page elements
@@ -25,14 +26,14 @@ class PoetryAnalysisTool {
             modificationDate: null,
             fileName: ''
         };
-        
+
         this.init();
         this.loadSavedData();
     }
 
     init() {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        
+
         this.bindEvents();
         this.updateStatus('Ready to upload PDF...');
     }
@@ -57,16 +58,16 @@ class PoetryAnalysisTool {
         const resetMetadataBtn = document.getElementById('resetMetadata');
 
         fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
-        
+
         uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
             uploadArea.classList.add('drag-over');
         });
-        
+
         uploadArea.addEventListener('dragleave', () => {
             uploadArea.classList.remove('drag-over');
         });
-        
+
         uploadArea.addEventListener('drop', (e) => {
             e.preventDefault();
             uploadArea.classList.remove('drag-over');
@@ -84,30 +85,44 @@ class PoetryAnalysisTool {
             if (e.key === 'Enter') this.goToPage();
         });
         pageInput.addEventListener('input', () => this.validatePageInput());
-        
+
         zoomInBtn.addEventListener('click', () => this.zoomIn());
         zoomOutBtn.addEventListener('click', () => this.zoomOut());
         zoomSelect.addEventListener('change', (e) => this.handleZoomSelect(e.target.value));
-        
+
         saveDataBtn.addEventListener('click', () => this.saveCurrentPair());
         clearDataBtn.addEventListener('click', () => this.clearCurrentSelection());
-        
+
         exportJsonBtn.addEventListener('click', () => this.exportAsJSON());
         exportCsvBtn.addEventListener('click', () => this.exportAsCSV());
-        
+
         updateMetadataBtn.addEventListener('click', () => this.updateMetadata());
         resetMetadataBtn.addEventListener('click', () => this.resetMetadata());
-        
+
         targetTextArea.addEventListener('input', () => this.updateSaveButton());
         sourceInfoArea.addEventListener('input', () => this.updateSaveButton());
-        
+
         // CRITICAL: Set up text selection handling
         document.addEventListener('mouseup', () => this.handleTextSelection());
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
-        
+
         // Add scroll-based page navigation
         const pdfViewer = document.getElementById('pdfViewer');
         pdfViewer.addEventListener('scroll', () => this.handleScroll());
+
+        // Auto-fill toggle
+        const autoFillToggle = document.getElementById('autoFillToggle');
+        autoFillToggle.addEventListener('change', (e) => {
+            this.autoFillEnabled = e.target.checked;
+            this.updateTargetIndicator();
+            if (this.autoFillEnabled) {
+                this.updateStatus('Auto-fill enabled');
+            } else {
+                this.updateStatus('Auto-fill disabled - Manual input mode');
+            }
+        });
+        // Initialize indicator after PDF loads
+        this.updateTargetIndicator();
     }
 
     async handleFileUpload(event) {
@@ -124,42 +139,42 @@ class PoetryAnalysisTool {
         try {
             this.updateStatus('Loading PDF...');
             this.showLoading();
-            
+
             // Check file size
             if (file.size > 50 * 1024 * 1024) { // 50MB limit
                 throw new Error('PDF file is too large. Please use a file smaller than 50MB.');
             }
-            
+
             const arrayBuffer = await file.arrayBuffer();
             this.pdfDoc = await pdfjsLib.getDocument({
                 data: arrayBuffer,
                 cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
                 cMapPacked: true
             }).promise;
-            
+
             this.totalPages = this.pdfDoc.numPages;
-            
+
             if (this.totalPages === 0) {
                 throw new Error('PDF appears to be empty.');
             }
-            
+
             // Extract PDF metadata
             this.updateStatus('Extracting document information...');
             await this.extractPDFMetadata();
-            
+
             document.getElementById('uploadSection').style.display = 'none';
             document.getElementById('workspace').style.display = 'grid';
-            
+
             // Initialize continuous display
             await this.initializeContinuousDisplay();
             this.updatePageControls();
             // Loading indicator will be hidden by renderVisiblePages()
             // this.hideLoading() is called there after all pages are rendered
-            
+
         } catch (error) {
             console.error('Error loading PDF:', error);
             this.hideLoading();
-            
+
             let errorMessage = 'Error loading PDF. ';
             if (error.message.includes('Invalid PDF')) {
                 errorMessage += 'The file appears to be corrupted or is not a valid PDF.';
@@ -170,9 +185,9 @@ class PoetryAnalysisTool {
             } else {
                 errorMessage += 'Please check the file and try again.';
             }
-            
+
             this.updateStatus(errorMessage);
-            
+
             // Show upload section again
             document.getElementById('uploadSection').style.display = 'block';
             document.getElementById('workspace').style.display = 'none';
@@ -184,7 +199,7 @@ class PoetryAnalysisTool {
         this.pdfContainer.innerHTML = '';
         this.pageElements.clear();
         this.renderedPages.clear();
-        
+
         // Create placeholder containers for all pages
         for (let pageNum = 1; pageNum <= this.totalPages; pageNum++) {
             const pageWrapper = document.createElement('div');
@@ -199,7 +214,7 @@ class PoetryAnalysisTool {
             pageWrapper.style.overflow = 'visible'; // Allow full content visibility
             pageWrapper.style.maxWidth = 'none'; // Remove width constraints
             pageWrapper.style.width = 'auto'; // Let content determine width
-            
+
             const pageHeader = document.createElement('div');
             pageHeader.className = 'page-header';
             pageHeader.style.background = '#f8f9fa';
@@ -209,14 +224,14 @@ class PoetryAnalysisTool {
             pageHeader.style.fontWeight = '600';
             pageHeader.style.color = '#6c757d';
             pageHeader.textContent = `Page ${pageNum} of ${this.totalPages}`;
-            
+
             const pageContent = document.createElement('div');
             pageContent.className = 'page-content';
             pageContent.style.position = 'relative';
             pageContent.style.background = 'white';
             pageContent.style.width = 'auto'; // Let content determine width
             pageContent.style.height = 'auto'; // Let content determine height
-            
+
             // Add loading placeholder
             const loadingPlaceholder = document.createElement('div');
             loadingPlaceholder.style.display = 'flex';
@@ -228,17 +243,17 @@ class PoetryAnalysisTool {
             loadingPlaceholder.textContent = 'Loading page...';
             loadingPlaceholder.className = 'page-loading-placeholder';
             pageContent.appendChild(loadingPlaceholder);
-            
+
             pageWrapper.appendChild(pageHeader);
             pageWrapper.appendChild(pageContent);
             this.pdfContainer.appendChild(pageWrapper);
-            
+
             this.pageElements.set(pageNum, { wrapper: pageWrapper, content: pageContent });
         }
-        
+
         // Render first few pages immediately
         await this.renderVisiblePages();
-        
+
         // Set up intersection observer for lazy loading
         this.setupIntersectionObserver();
     }
@@ -246,13 +261,13 @@ class PoetryAnalysisTool {
     async renderVisiblePages() {
         // Render ALL pages immediately for full continuous display
         this.updateStatus(`Rendering all ${this.totalPages} pages...`);
-        
+
         const startTime = Date.now();
-        
+
         for (let pageNum = 1; pageNum <= this.totalPages; pageNum++) {
             if (!this.renderedPages.has(pageNum)) {
                 await this.renderSinglePage(pageNum);
-                
+
                 // Update progress more frequently for user feedback
                 if (pageNum % 3 === 0 || pageNum === this.totalPages) {
                     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -260,7 +275,7 @@ class PoetryAnalysisTool {
                 }
             }
         }
-        
+
         const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
         this.updateStatus(`✓ All ${this.totalPages} pages loaded in ${totalTime}s. Select text to begin analysis.`);
         this.hideLoading();
@@ -268,37 +283,37 @@ class PoetryAnalysisTool {
 
     async renderSinglePage(pageNum) {
         if (this.renderedPages.has(pageNum) || !this.pdfDoc) return;
-        
+
         try {
             const page = await this.pdfDoc.getPage(pageNum);
             // Get the full page viewport without any scaling constraints
             const naturalViewport = page.getViewport({ scale: 1.0 });
             const viewport = page.getViewport({ scale: this.scale });
-            
+
             console.log(`Page ${pageNum} natural dimensions:`, naturalViewport.width, 'x', naturalViewport.height);
             console.log(`Page ${pageNum} scaled dimensions:`, viewport.width, 'x', viewport.height);
-            
+
             const pageElements = this.pageElements.get(pageNum);
             if (!pageElements) return;
-            
+
             // Create canvas for this page with natural sizing
             const canvas = document.createElement('canvas');
-            
+
             // Use natural canvas dimensions based on PDF viewport
             canvas.width = viewport.width;
             canvas.height = viewport.height;
             canvas.style.width = viewport.width + 'px';
             canvas.style.height = viewport.height + 'px';
             canvas.style.display = 'block';
-            
+
             const ctx = canvas.getContext('2d');
-            
+
             // Render PDF page to canvas
             await page.render({
                 canvasContext: ctx,
                 viewport: viewport
             }).promise;
-            
+
             // Create text layer for this page - match canvas dimensions exactly
             const textLayer = document.createElement('div');
             textLayer.className = 'text-layer';
@@ -314,19 +329,19 @@ class PoetryAnalysisTool {
             textLayer.style.pointerEvents = 'auto';
             textLayer.style.zIndex = '2';
             textLayer.style.overflow = 'visible'; // Ensure text isn't clipped
-            
+
             // Render text layer
             await this.renderTextLayerForPage(page, viewport, textLayer, pageNum);
-            
+
             // Clear page content (including loading placeholder) and add rendered elements
             pageElements.content.innerHTML = '';
             pageElements.content.appendChild(canvas);
             pageElements.content.appendChild(textLayer);
-            
+
             this.renderedPages.add(pageNum);
-            
+
             console.log(`Page ${pageNum} rendered successfully`);
-            
+
         } catch (error) {
             console.error(`Error rendering page ${pageNum}:`, error);
         }
@@ -336,7 +351,7 @@ class PoetryAnalysisTool {
         try {
             // Get text content from PDF.js
             const textContent = await page.getTextContent();
-            
+
             // Use PDF.js renderTextLayer function with proper positioning
             await pdfjsLib.renderTextLayer({
                 textContentSource: textContent,
@@ -345,36 +360,36 @@ class PoetryAnalysisTool {
                 textDivs: [],
                 isOffscreenCanvasSupported: true
             }).promise;
-            
+
             console.log(`Text layer for page ${pageNum} rendered successfully`);
-            
+
         } catch (error) {
             console.warn(`PDF.js text layer failed for page ${pageNum}, using fallback:`, error);
             // Fallback to custom text overlay
             await this.createSelectableTextOverlayForPage(page, viewport, textLayerDiv, pageNum);
         }
     }
-    
+
     async createSelectableTextOverlayForPage(page, viewport, textLayerDiv, pageNum) {
         try {
             const textContent = await page.getTextContent();
             const textItems = textContent.items;
-            
+
             // Build text with proper positioning
             let fullText = '';
             let lastY = null;
-            
+
             textItems.forEach((item, index) => {
                 const transform = item.transform;
                 const y = transform[5];
-                
+
                 // Add line break for new lines
                 if (lastY !== null && Math.abs(y - lastY) > 10) {
                     fullText += '\n';
                 }
-                
+
                 fullText += item.str;
-                
+
                 // Add space between words on same line
                 if (index < textItems.length - 1) {
                     const nextItem = textItems[index + 1];
@@ -383,10 +398,10 @@ class PoetryAnalysisTool {
                         fullText += ' ';
                     }
                 }
-                
+
                 lastY = y;
             });
-            
+
             // Create fallback selectable overlay
             const overlay = document.createElement('div');
             overlay.style.position = 'absolute';
@@ -409,12 +424,12 @@ class PoetryAnalysisTool {
             overlay.style.zIndex = '20';
             overlay.style.pointerEvents = 'auto';
             overlay.setAttribute('data-page', pageNum);
-            
+
             overlay.textContent = fullText;
             textLayerDiv.appendChild(overlay);
-            
+
             console.log(`Fallback text overlay created for page ${pageNum}`);
-            
+
         } catch (error) {
             console.error(`Error creating text overlay for page ${pageNum}:`, error);
         }
@@ -425,14 +440,14 @@ class PoetryAnalysisTool {
         const visibilityObserver = new IntersectionObserver((entries) => {
             let mostVisiblePage = null;
             let maxRatio = 0;
-            
+
             entries.forEach(entry => {
                 if (entry.isIntersecting && entry.intersectionRatio > maxRatio) {
                     maxRatio = entry.intersectionRatio;
                     mostVisiblePage = parseInt(entry.target.getAttribute('data-page'));
                 }
             });
-            
+
             if (mostVisiblePage && mostVisiblePage !== this.currentPage) {
                 this.currentPage = mostVisiblePage;
                 this.updatePageControls();
@@ -448,7 +463,7 @@ class PoetryAnalysisTool {
             visibilityObserver.observe(elements.wrapper);
         });
     }
-    
+
     createSimpleFallback() {
         const fallback = document.createElement('div');
         fallback.style.position = 'absolute';
@@ -468,7 +483,7 @@ class PoetryAnalysisTool {
         fallback.style.zIndex = '25';
         fallback.style.border = '2px dashed #ccc';
         fallback.style.borderRadius = '8px';
-        
+
         fallback.textContent = `SELECTABLE TEXT AREA
 
 This is a test text overlay. You should be able to:
@@ -482,7 +497,7 @@ Try selecting this text now! If you can select this text, the system is working.
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.
 
 This text should be fully selectable. Try highlighting different portions to test the alternating field population feature.`;
-        
+
         this.textLayerDiv.appendChild(fallback);
         console.log('Simple fallback text layer created');
     }
@@ -502,36 +517,28 @@ This text should be fully selectable. Try highlighting different portions to tes
         textDiv.style.webkitUserSelect = 'text';
         textDiv.style.zIndex = '5';
         textDiv.textContent = 'PDF text content - select any text to extract';
-        
+
         this.textLayerDiv.appendChild(textDiv);
     }
 
     handleTextSelection() {
-        // Give a small delay to ensure selection is complete
+        // Check if auto-fill is enabled
+        if (!this.autoFillEnabled) return;
+
         setTimeout(() => {
             const selection = window.getSelection();
-            console.log('Selection check - range count:', selection.rangeCount);
-            
+
             if (selection.rangeCount > 0) {
                 const selectedText = selection.toString().trim();
-                console.log('Text selected length:', selectedText.length);
-                console.log('Selected text:', selectedText);
-                
-                if (selectedText.length > 2) { // Process any meaningful selection
+
+                if (selectedText.length > 2) {
                     this.processSelectedTextAlternating(selectedText);
-                    
-                    // Visual feedback
                     this.showSelectionFeedback(selection);
-                    
-                    // Clear selection after processing
+
                     setTimeout(() => {
                         selection.removeAllRanges();
                     }, 1500);
-                } else {
-                    console.log('Selection too short, ignoring');
                 }
-            } else {
-                console.log('No selection range found');
             }
         }, 150);
     }
@@ -543,7 +550,7 @@ This text should be fully selectable. Try highlighting different portions to tes
             const rect = range.getBoundingClientRect();
             const pdfContainer = document.getElementById('pdfContainer');
             const containerRect = pdfContainer.getBoundingClientRect();
-            
+
             const highlight = document.createElement('div');
             highlight.style.position = 'absolute';
             highlight.style.left = (rect.left - containerRect.left) + 'px';
@@ -555,16 +562,16 @@ This text should be fully selectable. Try highlighting different portions to tes
             highlight.style.zIndex = '10';
             highlight.style.border = '1px solid #ffa500';
             highlight.className = 'selection-highlight';
-            
+
             pdfContainer.appendChild(highlight);
-            
+
             // Remove highlight after delay
             setTimeout(() => {
                 if (highlight.parentNode) {
                     highlight.parentNode.removeChild(highlight);
                 }
             }, 2000);
-            
+
         } catch (e) {
             console.log('Could not create selection highlight:', e);
         }
@@ -573,37 +580,35 @@ This text should be fully selectable. Try highlighting different portions to tes
     processSelectedTextAlternating(text) {
         const targetTextArea = document.getElementById('targetText');
         const sourceInfoArea = document.getElementById('sourceInfo');
+        const targetTextGroup = document.getElementById('targetTextGroup');
+        const sourceInfoGroup = document.getElementById('sourceInfoGroup');
 
-        // Alternate between target and source fields
+        // Remove previous states
+        targetTextGroup.classList.remove('next-target', 'completed');
+        sourceInfoGroup.classList.remove('next-target', 'completed');
+
         if (this.selectionCount % 2 === 0) {
             // Even count: goes to target field
             targetTextArea.value = text;
             this.currentSelection.target = text;
-            this.updateStatus(`✓ Target text captured! (Selection ${this.selectionCount + 1}) - Next selection will go to Source Info.`);
-            targetTextArea.style.borderColor = '#48bb78';
-            sourceInfoArea.style.borderColor = '#e2e8f0';
+            targetTextGroup.classList.add('completed');
+            this.updateStatus(`✓ Target text captured! Next → Source Info`);
         } else {
             // Odd count: goes to source field
             sourceInfoArea.value = text;
             this.currentSelection.source = text;
-            this.updateStatus(`✓ Source info captured! (Selection ${this.selectionCount + 1}) - Next selection will go to Target Text.`);
-            sourceInfoArea.style.borderColor = '#48bb78';
-            targetTextArea.style.borderColor = '#e2e8f0';
+            sourceInfoGroup.classList.add('completed');
+            targetTextGroup.classList.add('completed');
+            this.updateStatus(`✓ Source info captured! Ready to save or select new target`);
 
-            // Trigger citation controls update for source info
             if (window.citationIntegration) {
                 window.citationIntegration.handleSourceInfoChange();
             }
         }
-        
+
         this.selectionCount++;
         this.updateSaveButton();
-        
-        // Reset border colors after delay
-        setTimeout(() => {
-            targetTextArea.style.borderColor = '#e2e8f0';
-            sourceInfoArea.style.borderColor = '#e2e8f0';
-        }, 3000);
+        this.updateTargetIndicator();
     }
 
     updatePageControls() {
@@ -612,13 +617,13 @@ This text should be fully selectable. Try highlighting different portions to tes
         const prevBtn = document.getElementById('prevPage');
         const nextBtn = document.getElementById('nextPage');
         const zoomSelect = document.getElementById('zoomSelect');
-        
+
         pageInput.value = this.currentPage;
         pageInput.max = this.totalPages;
         totalPagesSpan.textContent = this.totalPages;
         prevBtn.disabled = this.currentPage <= 1;
         nextBtn.disabled = this.currentPage >= this.totalPages;
-        
+
         // Update zoom dropdown
         const currentZoom = Math.round(this.scale * 100);
         const zoomOption = zoomSelect.querySelector(`option[value="${currentZoom}"]`);
@@ -653,13 +658,13 @@ This text should be fully selectable. Try highlighting different portions to tes
     async goToPage() {
         const pageInput = document.getElementById('pageInput');
         const targetPage = parseInt(pageInput.value);
-        
+
         if (isNaN(targetPage)) {
             this.updateStatus('Please enter a valid page number');
             pageInput.value = this.currentPage;
             return;
         }
-        
+
         if (targetPage >= 1 && targetPage <= this.totalPages) {
             try {
                 this.currentPage = targetPage;
@@ -680,11 +685,11 @@ This text should be fully selectable. Try highlighting different portions to tes
     scrollToPage(pageNum) {
         const pageElements = this.pageElements.get(pageNum);
         if (pageElements) {
-            pageElements.wrapper.scrollIntoView({ 
-                behavior: 'smooth', 
-                block: 'start' 
+            pageElements.wrapper.scrollIntoView({
+                behavior: 'smooth',
+                block: 'start'
             });
-            
+
             // Ensure the page is rendered
             if (!this.renderedPages.has(pageNum)) {
                 this.renderSinglePage(pageNum);
@@ -695,7 +700,7 @@ This text should be fully selectable. Try highlighting different portions to tes
     validatePageInput() {
         const pageInput = document.getElementById('pageInput');
         const value = parseInt(pageInput.value);
-        
+
         if (isNaN(value) || value < 1) {
             pageInput.value = 1;
         } else if (value > this.totalPages) {
@@ -707,7 +712,7 @@ This text should be fully selectable. Try highlighting different portions to tes
         if (this.scale < 3.0 && !this.isLoading) {
             const oldScale = this.scale;
             this.scale = Math.min(3.0, this.scale + 0.25);
-            
+
             if (oldScale !== this.scale) {
                 await this.reRenderAllPages();
                 this.updatePageControls();
@@ -720,7 +725,7 @@ This text should be fully selectable. Try highlighting different portions to tes
         if (this.scale > 0.5 && !this.isLoading) {
             const oldScale = this.scale;
             this.scale = Math.max(0.5, this.scale - 0.25);
-            
+
             if (oldScale !== this.scale) {
                 await this.reRenderAllPages();
                 this.updatePageControls();
@@ -742,19 +747,19 @@ This text should be fully selectable. Try highlighting different portions to tes
     async reRenderAllPages() {
         // Clear all rendered pages and re-render visible ones
         this.renderedPages.clear();
-        
+
         // Clear all page contents
         this.pageElements.forEach((elements, pageNum) => {
             elements.content.innerHTML = '';
         });
-        
+
         // Re-render visible pages
         await this.renderVisiblePages();
     }
 
     async handleZoomSelect(value) {
         if (this.isLoading) return;
-        
+
         if (value === 'fit-width') {
             await this.fitWidth();
         } else {
@@ -765,13 +770,13 @@ This text should be fully selectable. Try highlighting different portions to tes
 
     async fitWidth() {
         if (!this.pdfDoc || this.isLoading) return;
-        
+
         try {
             const page = await this.pdfDoc.getPage(this.currentPage);
             const viewport = page.getViewport({ scale: 1.0 });
             const pdfViewer = document.getElementById('pdfViewer');
             const containerWidth = pdfViewer.clientWidth - 32;
-            
+
             this.scale = containerWidth / viewport.width;
             await this.renderPage();
             this.updatePageControls();
@@ -784,14 +789,14 @@ This text should be fully selectable. Try highlighting different portions to tes
         const saveBtn = document.getElementById('saveData');
         const targetText = document.getElementById('targetText').value.trim();
         const sourceInfo = document.getElementById('sourceInfo').value.trim();
-        
+
         saveBtn.disabled = !targetText || !sourceInfo;
     }
 
     saveCurrentPair() {
         const targetText = document.getElementById('targetText').value.trim();
         const sourceInfo = document.getElementById('sourceInfo').value.trim();
-        
+
         if (targetText && sourceInfo) {
             const dataPair = {
                 id: Date.now(),
@@ -800,7 +805,7 @@ This text should be fully selectable. Try highlighting different portions to tes
                 targetText: targetText,
                 sourceInfo: sourceInfo
             };
-            
+
             this.savedData.push(dataPair);
             this.saveToStorage();
             this.updateDataDisplay();
@@ -813,27 +818,65 @@ This text should be fully selectable. Try highlighting different portions to tes
         document.getElementById('targetText').value = '';
         document.getElementById('sourceInfo').value = '';
         this.currentSelection = { target: '', source: '' };
-        this.selectionCount = 0; // Reset selection counter
-        
-        // Remove any highlight overlays
+        this.selectionCount = 0;
+
+        // Remove highlights
         document.querySelectorAll('.selection-highlight').forEach(el => el.remove());
-        
+
+        // Reset visual states
+        const targetTextGroup = document.getElementById('targetTextGroup');
+        const sourceInfoGroup = document.getElementById('sourceInfoGroup');
+        targetTextGroup.classList.remove('next-target', 'completed');
+        sourceInfoGroup.classList.remove('next-target', 'completed');
+
         this.updateSaveButton();
-        this.updateStatus('Selections cleared. Next selection will go to Target Text.');
-        
-        // Reset border colors
-        document.getElementById('targetText').style.borderColor = '#e2e8f0';
-        document.getElementById('sourceInfo').style.borderColor = '#e2e8f0';
+        this.updateTargetIndicator();
+        this.updateStatus('Cleared. Next → Target Text');
+    }
+
+    updateTargetIndicator() {
+        const indicator = document.getElementById('currentTargetIndicator');
+        const nextFieldName = document.getElementById('nextFieldName');
+        const targetTextGroup = document.getElementById('targetTextGroup');
+        const sourceInfoGroup = document.getElementById('sourceInfoGroup');
+
+        if (!indicator || !nextFieldName) return;
+
+        // Handle disabled state
+        if (!this.autoFillEnabled) {
+            indicator.classList.add('disabled');
+            nextFieldName.textContent = 'Manual Mode';
+            targetTextGroup.classList.remove('next-target');
+            sourceInfoGroup.classList.remove('next-target');
+            return;
+        }
+
+        indicator.classList.remove('disabled');
+
+        // Determine next target
+        if (this.selectionCount % 2 === 0) {
+            nextFieldName.textContent = 'Target Text';
+            if (!targetTextGroup.classList.contains('completed')) {
+                targetTextGroup.classList.add('next-target');
+            }
+            sourceInfoGroup.classList.remove('next-target');
+        } else {
+            nextFieldName.textContent = 'Source Info';
+            targetTextGroup.classList.remove('next-target');
+            if (!sourceInfoGroup.classList.contains('completed')) {
+                sourceInfoGroup.classList.add('next-target');
+            }
+        }
     }
 
     updateDataDisplay() {
         const container = document.getElementById('savedData');
         const countElement = document.querySelector('.data-count');
-        
+
         countElement.textContent = `${this.savedData.length} pairs saved`;
-        
+
         container.innerHTML = '';
-        
+
         this.savedData.slice().reverse().forEach((item) => {
             const itemElement = document.createElement('div');
             itemElement.className = 'data-item';
@@ -890,7 +933,7 @@ This text should be fully selectable. Try highlighting different portions to tes
             this.updateStatus('No data to export.');
             return;
         }
-        
+
         const exportData = {
             metadata: {
                 exportDate: new Date().toISOString(),
@@ -906,13 +949,13 @@ This text should be fully selectable. Try highlighting different portions to tes
             },
             data: this.savedData
         };
-        
+
         this.downloadFile(
             JSON.stringify(exportData, null, 2),
             'poetry-analysis-data.json',
             'application/json'
         );
-        
+
         this.updateStatus('Data exported as JSON.');
     }
 
@@ -921,7 +964,7 @@ This text should be fully selectable. Try highlighting different portions to tes
             this.updateStatus('No data to export.');
             return;
         }
-        
+
         const headers = ['Document Title', 'Author', 'Year', 'ID', 'Timestamp', 'Page', 'Target Text', 'Source Info'];
         const csvContent = [
             headers.join(','),
@@ -936,7 +979,7 @@ This text should be fully selectable. Try highlighting different portions to tes
                 `"${item.sourceInfo.replace(/"/g, '""')}"`
             ].join(','))
         ].join('\n');
-        
+
         this.downloadFile(csvContent, 'poetry-analysis-data.csv', 'text/csv');
         this.updateStatus('Data exported as CSV.');
     }
@@ -961,12 +1004,12 @@ This text should be fully selectable. Try highlighting different portions to tes
 
     handleKeyboard(event) {
         if (!this.pdfDoc) return;
-        
+
         const activeElement = document.activeElement;
         if (activeElement.tagName === 'TEXTAREA' || activeElement.tagName === 'INPUT') {
             return;
         }
-        
+
         switch (event.key) {
             case 'ArrowLeft':
                 event.preventDefault();
@@ -1026,7 +1069,7 @@ This text should be fully selectable. Try highlighting different portions to tes
         const loadingIndicator = document.getElementById('loadingIndicator');
         loadingIndicator.style.display = 'flex';
     }
-    
+
     hideLoading() {
         const loadingIndicator = document.getElementById('loadingIndicator');
         loadingIndicator.style.display = 'none';
@@ -1036,7 +1079,7 @@ This text should be fully selectable. Try highlighting different portions to tes
         try {
             // Get PDF metadata
             const metadata = await this.pdfDoc.getMetadata();
-            
+
             if (metadata.info) {
                 this.metadata.title = metadata.info.Title || '';
                 this.metadata.author = metadata.info.Author || '';
@@ -1046,46 +1089,46 @@ This text should be fully selectable. Try highlighting different portions to tes
                 this.metadata.creationDate = metadata.info.CreationDate || null;
                 this.metadata.modificationDate = metadata.info.ModDate || null;
             }
-            
+
             // If no title in metadata, try to extract from first page
             if (!this.metadata.title || this.metadata.title.trim() === '') {
                 await this.extractTitleFromFirstPage();
             }
-            
+
             // If still no title, use filename
             if (!this.metadata.title || this.metadata.title.trim() === '') {
                 this.metadata.title = this.metadata.fileName.replace('.pdf', '').replace(/[-_]/g, ' ');
             }
-            
+
             // Display metadata panel and populate fields
             this.displayMetadata();
-            
+
             console.log('Extracted metadata:', this.metadata);
-            
+
         } catch (error) {
             console.error('Error extracting metadata:', error);
             this.updateStatus('Could not extract PDF metadata.');
         }
     }
-    
+
     async extractTitleFromFirstPage() {
         try {
             if (this.totalPages > 0) {
                 const page = await this.pdfDoc.getPage(1);
                 const textContent = await page.getTextContent();
                 const textItems = textContent.items;
-                
+
                 // Look for title-like text (usually larger font, at top of page)
                 let potentialTitles = [];
-                
+
                 textItems.forEach((item, index) => {
                     const text = item.str.trim();
                     const transform = item.transform;
                     const fontSize = Math.abs(transform[0]); // Font size
                     const y = transform[5]; // Y position
-                    
+
                     // Look for text that might be a title
-                    if (text.length > 5 && fontSize > 12 && y > (page.getViewport({scale: 1.0}).height * 0.7)) {
+                    if (text.length > 5 && fontSize > 12 && y > (page.getViewport({ scale: 1.0 }).height * 0.7)) {
                         potentialTitles.push({
                             text: text,
                             fontSize: fontSize,
@@ -1094,27 +1137,27 @@ This text should be fully selectable. Try highlighting different portions to tes
                         });
                     }
                 });
-                
+
                 // Sort by font size (descending) and y position (descending - higher on page)
                 potentialTitles.sort((a, b) => b.fontSize - a.fontSize || b.y - a.y);
-                
+
                 // Take the first few lines and combine them as potential title
                 if (potentialTitles.length > 0) {
                     let titleText = potentialTitles[0].text;
-                    
+
                     // Check if next line might be part of title (similar font size, nearby)
                     for (let i = 1; i < Math.min(3, potentialTitles.length); i++) {
                         const current = potentialTitles[i];
-                        const previous = potentialTitles[i-1];
-                        
-                        if (Math.abs(current.fontSize - previous.fontSize) < 2 && 
+                        const previous = potentialTitles[i - 1];
+
+                        if (Math.abs(current.fontSize - previous.fontSize) < 2 &&
                             Math.abs(current.y - previous.y) < 30) {
                             titleText += ' ' + current.text;
                         } else {
                             break;
                         }
                     }
-                    
+
                     this.metadata.title = titleText;
                     console.log('Extracted title from first page:', titleText);
                 }
@@ -1123,16 +1166,16 @@ This text should be fully selectable. Try highlighting different portions to tes
             console.error('Error extracting title from first page:', error);
         }
     }
-    
+
     displayMetadata() {
         // Show metadata panel
         document.getElementById('metadataPanel').style.display = 'block';
-        
+
         // Populate fields
         document.getElementById('bookTitle').value = this.metadata.title || '';
         document.getElementById('bookAuthor').value = this.metadata.author || '';
         document.getElementById('bookSubject').value = this.metadata.subject || '';
-        
+
         // Extract year from creation date if available
         if (this.metadata.creationDate) {
             try {
@@ -1144,25 +1187,25 @@ This text should be fully selectable. Try highlighting different portions to tes
                 // Ignore date parsing errors
             }
         }
-        
+
         this.updateStatus('✓ PDF metadata extracted and displayed');
     }
-    
+
     updateMetadata() {
         // Update metadata from form fields
         this.metadata.title = document.getElementById('bookTitle').value.trim();
         this.metadata.author = document.getElementById('bookAuthor').value.trim();
         this.metadata.subject = document.getElementById('bookSubject').value.trim();
-        
+
         const year = document.getElementById('bookYear').value;
         if (year) {
             this.metadata.year = parseInt(year);
         }
-        
+
         this.updateStatus('✓ Document information updated');
         console.log('Updated metadata:', this.metadata);
     }
-    
+
     resetMetadata() {
         // Reset to original extracted values
         this.displayMetadata();
@@ -1172,7 +1215,7 @@ This text should be fully selectable. Try highlighting different portions to tes
     updateStatus(message) {
         const statusBar = document.getElementById('statusBar');
         statusBar.textContent = message;
-        
+
         setTimeout(() => {
             if (statusBar.textContent === message) {
                 statusBar.textContent = 'Ready - Select text from PDF to continue';

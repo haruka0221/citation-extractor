@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +10,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/text_layer_builder.css">
 </head>
+
 <body>
     <div class="app-container">
         <header class="app-header">
@@ -29,7 +31,8 @@
                 </div>
             </div>
 
-            <div class="workspace" id="workspace" style="display: none; height: auto !important; min-height: calc(100vh - 200px) !important; align-items: flex-start !important;">
+            <div class="workspace" id="workspace"
+                style="display: none; height: auto !important; min-height: calc(100vh - 200px) !important; align-items: flex-start !important;">
                 <div class="pdf-viewer-container" style="height: auto !important; overflow: visible !important;">
                     <div class="pdf-controls">
                         <div class="navigation-controls">
@@ -58,18 +61,21 @@
                             <button id="zoomIn">+</button>
                         </div>
                     </div>
-                    <div class="pdf-viewer" id="pdfViewer" style="height: auto !important; max-height: none !important; flex: 1 1 auto !important; min-height: 400px !important;">
+                    <div class="pdf-viewer" id="pdfViewer"
+                        style="height: auto !important; max-height: none !important; flex: 1 1 auto !important; min-height: 400px !important;">
                         <div class="loading-indicator" id="loadingIndicator" style="display: none;">
                             <div class="spinner"></div>
                             <span>Loading page...</span>
                         </div>
-                        <div class="pdf-container" id="pdfContainer" style="user-select: text; -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text; overflow: visible !important; width: 100% !important; min-width: fit-content !important;">
+                        <div class="pdf-container" id="pdfContainer"
+                            style="user-select: text; -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text; overflow: visible !important; width: 100% !important; min-width: fit-content !important;">
                             <!-- Pages will be dynamically added here -->
                         </div>
                     </div>
                 </div>
 
-                <div class="data-panel" style="position: sticky !important; top: 2rem !important; max-height: calc(100vh - 4rem) !important; overflow-y: auto !important; align-self: flex-start !important;">
+                <div class="data-panel"
+                    style="position: sticky !important; top: 2rem !important; max-height: calc(100vh - 4rem) !important; overflow-y: auto !important; align-self: flex-start !important;">
                     <div class="metadata-panel" id="metadataPanel" style="display: none;">
                         <h3>Document Information</h3>
                         <div class="metadata-inputs">
@@ -95,14 +101,31 @@
                             </div>
                         </div>
                     </div>
-                    
+
+
+                    <!-- index.htmlの既存の.selection-inputsセクションをこれに置き換え -->
                     <div class="selection-inputs">
-                        <h3>Text Selection</h3>
-                        <div class="input-group">
+                        <div class="selection-header">
+                            <h3>Text Selection</h3>
+                            <div class="auto-fill-toggle">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="autoFillToggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span class="toggle-label">Auto-fill</span>
+                            </div>
+                        </div>
+
+                        <div class="current-target-indicator" id="currentTargetIndicator">
+                            <span class="indicator-icon">👉</span>
+                            <span class="indicator-text">Next → <strong id="nextFieldName">Target Text</strong></span>
+                        </div>
+
+                        <div class="input-group" id="targetTextGroup">
                             <label for="targetText">Target Poem Text:</label>
                             <textarea id="targetText" placeholder="Click to select text from the PDF..."></textarea>
                         </div>
-                        <div class="input-group">
+                        <div class="input-group" id="sourceInfoGroup">
                             <label for="sourceInfo">Source Influence Info:</label>
                             <textarea id="sourceInfo" placeholder="Click to select footnote or reference..."></textarea>
                             <div class="citation-controls" id="citationControls" style="display: none;">
@@ -118,6 +141,8 @@
                             <button id="clearData">Clear</button>
                         </div>
                     </div>
+
+
 
                     <div class="data-list">
                         <h3>Collected Data</h3>
@@ -165,7 +190,8 @@
                     <div class="no-candidates" id="noCandidates" style="display: none;">
                         <div class="no-results-icon">📚</div>
                         <h3>No sources found</h3>
-                        <p>No matching passages were found for this citation. Try editing the citation text or check for typos.</p>
+                        <p>No matching passages were found for this citation. Try editing the citation text or check for
+                            typos.</p>
                     </div>
                 </div>
             </div>
@@ -218,8 +244,7 @@
             </div>
 
             <div class="text-search-container" id="textSearchContainer" style="display: none;">
-                <input type="text" class="text-search-input" id="textSearchInput"
-                       placeholder="Search within text...">
+                <input type="text" class="text-search-input" id="textSearchInput" placeholder="Search within text...">
                 <div class="search-results-info" id="searchResultsInfo"></div>
             </div>
 
@@ -254,24 +279,26 @@
 
     <!-- Configuration File (Load First!) -->
     <script src="gutenberg-config.js"></script>
-    
+    <script src="bible-config.js"></script>
+    <script src="BibleProvider.js"></script>
+
     <!-- Phase 1: On-Demand Loading System (70,000+ works) -->
     <script src="GutenbergMirrorLoader.js"></script>
     <script src="TextCleaner.js"></script>
     <script src="CacheManager.js"></script>
     <script src="OnDemandTextLoader.js"></script>
     <script src="ExtendedCSVCatalogSystem.js"></script>
-    
+
     <!-- Diagnostic and Testing Tools -->
     <script src="system-diagnostics.js"></script>
     <script src="test-on-demand-system.js"></script>
-    
+
     <!-- Auto-initialization (CRITICAL - Load before patch) -->
     <script src="auto-init.js"></script>
-    
+
     <!-- Extended CSV Catalog Integration Patch (MUST be before citation-integration.js) -->
     <script src="citation-integration-patch.js"></script>
-    
+
     <!-- Original Scripts -->
     <script src="app.js"></script>
     <script src="citation-catalog.js"></script>
@@ -281,4 +308,5 @@
     <script src="citation-integration.js"></script>
     <script src="extractLineRange.js"></script>
 </body>
+
 </html>

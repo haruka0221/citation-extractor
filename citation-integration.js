@@ -12,6 +12,7 @@ class CitationIntegration {
         this.dynamicCatalog = null;
         this.csvCatalog = null;
         this.fullTextViewer = null;
+        this.bibleProvider = null;
 
         this.initializeEventListeners();
         this.initializeCitationEngine();
@@ -49,6 +50,19 @@ class CitationIntegration {
                 console.log('📊 Catalog stats:', stats);
             } else {
                 console.warn('⚠️ No catalog system available, using legacy methods');
+            }
+
+            // Initialize Bible provider
+            if (window.BibleProvider) {
+                this.bibleProvider = new window.BibleProvider();
+                try {
+                    await this.bibleProvider.initialize(window.bibleConfig);
+                    console.log('✅ Bible provider initialized successfully');
+                } catch (error) {
+                    console.warn('⚠️ Bible provider initialization failed:', error);
+                }
+            } else {
+                console.warn('⚠️ BibleProvider not available');
             }
 
             // Initialize full-text viewer
@@ -691,29 +705,73 @@ class CitationIntegration {
      * Check if citation looks biblical
      */
     isBiblicalCitation(citationText) {
-        return /\b\d+:\d+/.test(citationText) ||
-               /genesis|matthew|romans|john|psalm|luke|acts|corinthians|peter|james/i.test(citationText);
+        const biblicalPatterns = [
+            // Chapter:Verse pattern
+            /\b\d+:\d+/,
+            // Book names (Old Testament)
+            /\b(genesis|exodus|leviticus|numbers|deuteronomy|joshua|judges|ruth|samuel|kings|chronicles|ezra|nehemiah|esther|job|psalm|proverbs|ecclesiastes|song|isaiah|jeremiah|lamentations|ezekiel|daniel|hosea|joel|amos|obadiah|jonah|micah|nahum|habakkuk|zephaniah|haggai|zechariah|malachi)\b/i,
+            // Book names (New Testament)
+            /\b(matthew|mark|luke|john|acts|romans|corinthians|galatians|ephesians|philippians|colossians|thessalonians|timothy|titus|philemon|hebrews|james|peter|jude|revelation)\b/i,
+            // Common abbreviations
+            /\b(gen|exo|lev|num|deu|jos|jdg|rut|sam|kgs|chr|ezr|neh|est|psa|pro|ecc|isa|jer|lam|ezk|dan|hos|joe|amo|oba|jon|mic|nah|hab|zep|hag|zec|mal|mat|mrk|luk|jhn|act|rom|cor|gal|eph|php|col|thes|tim|tit|phm|heb|jas|pet|jud|rev)\b/i
+        ];
+
+        return biblicalPatterns.some(pattern => pattern.test(citationText));
     }
 
     /**
      * Generate biblical candidates
      */
     generateBiblicalCandidates(citationText) {
-        console.log('📖 Adding biblical candidates for:', citationText);
+        console.log('📖 Generating biblical candidates for:', citationText);
 
-        return [{
-            source: 'bible:esv',
-            confidence: 0.95,
-            text: 'In the beginning, God created the heavens and the earth. The earth was without form and void, and darkness was over the face of the deep.',
-            metadata: {
-                book: 'Genesis',
-                chapter: 1,
-                verses: '1-2',
-                translation: 'ESV',
-                source: 'bible_api'
-            },
-            type: 'bible'
-        }];
+        // Use BibleProvider if available
+        if (this.bibleProvider && this.bibleProvider.initialized) {
+            const results = this.bibleProvider.search(citationText);
+
+            if (results && results.length > 0) {
+                console.log(`✅ BibleProvider found ${results.length} results`);
+                return results.map(result => ({
+                    source: 'bible:kjv',
+                    confidence: result.confidence / 100, // Convert to 0-1 scale
+                    text: result.text,
+                    metadata: {
+                        book: result.title.split(' ')[0],
+                        chapter: result.lines.split(':')[0],
+                        verses: result.lines,
+                        translation: result.author,
+                        title: result.title,
+                        source: 'BibleNLP/ebible'
+                    },
+                    type: 'bible'
+                }));
+            }
+        }
+
+        // Fallback: try to parse as direct citation
+        if (this.bibleProvider && this.bibleProvider.initialized) {
+            const passage = this.bibleProvider.getPassage(citationText);
+            if (passage) {
+                return [{
+                    source: 'bible:kjv',
+                    confidence: 1.0,
+                    text: passage.text,
+                    metadata: {
+                        book: passage.book,
+                        chapter: passage.chapter,
+                        verses: `${passage.startVerse}-${passage.endVerse || passage.startVerse}`,
+                        translation: passage.version,
+                        title: passage.citation,
+                        source: 'BibleNLP/ebible'
+                    },
+                    type: 'bible'
+                }];
+            }
+        }
+
+        // Final fallback: return empty array (no hardcoded data)
+        console.log('⚠️ No Bible results found for:', citationText);
+        return [];
     }
 
     /**
