@@ -4,27 +4,77 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Poetry Analysis - Citation Extractor</title>
+    <title>抽出くん - Citation Extractor</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="full-text-viewer.css">
+    <link rel="stylesheet" href="rating-styles.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/text_layer_builder.css">
 </head>
 
 <body>
     <div class="app-container">
-        <header class="app-header">
-            <h1>Poetry Analysis Tool</h1>
-            <p>Structural analysis of poetry texts from PDF documents</p>
+        <header style="
+            background: #ffffff;
+            border-bottom: 1px solid #e2e5ea;
+            padding: 0 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 72px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+            flex-wrap: wrap;
+            gap: 8px;
+        ">
+            <!-- 左：ツール名 -->
+            <div style="display:flex;align-items:center;gap:12px">
+                <div>
+                    <div style="font-size:1.6rem;font-weight:700;color:#1a1a2e;letter-spacing:0.01em;line-height:1.2">
+                        抽出くん
+                        <span style="font-size:1rem;font-weight:400;color:#6b7280;margin-left:8px">Citation Extractor</span>
+                    </div>
+                    <div style="font-size:0.8rem;color:#9ca3af;margin-top:2px">Structural analysis of literary texts from PDF documents</div>
+                </div>
+            </div>
+
+            <!-- 中央：接続状態 -->
+            <div id="connectionStatusBar" style="
+                display:flex; align-items:center; gap:10px;
+                font-size:0.78rem; flex-wrap:wrap;
+            ">
+                <span style="color:#9ca3af;font-weight:600">🔗</span>
+                <span id="rdmStatusBadge" style="cursor:pointer">
+                    <span style="color:#9ca3af">🏛 RDM: 確認中...</span>
+                </span>
+                <span style="color:#d1d5db">|</span>
+                <span id="gdriveStatusBadge" style="cursor:pointer">
+                    <span style="color:#9ca3af">☁️ Drive: 確認中...</span>
+                </span>
+            </div>
+
+            <!-- 右：作成者・リンク -->
+            <div style="display:flex;align-items:center;gap:14px;font-size:0.75rem;color:#6b7280">
+                <span style="color:#9ca3af">Haruka Tsutsui</span>
+                <a href="https://github.com/haruka0221/citation-extractor"
+                   target="_blank"
+                   style="color:#6b7280;text-decoration:none;display:flex;align-items:center;gap:4px"
+                   onmouseover="this.style.color='#2563eb'" onmouseout="this.style.color='#6b7280'">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                    GitHub
+                </a>
+                <span style="color:#d1d5db">|</span>
+                <span style="color:#c4c9d4;cursor:not-allowed" title="準備中">Guide</span>
+            </div>
         </header>
 
         <main class="main-content" style="max-width: none !important; width: 100% !important;">
-            <div class="upload-section" id="uploadSection">
+            <div class="upload-section" id="uploadSection" style="display:none">
                 <div class="upload-area" id="uploadArea">
                     <div class="upload-icon">📄</div>
                     <h3>Upload PDF Document</h3>
-                    <p>Select a PDF file containing poetry texts</p>
-                    <input type="file" id="fileInput" accept=".pdf" hidden>
+                    <p>Select a PDF file containing literary texts</p>
                     <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
                         Choose PDF File
                     </button>
@@ -32,8 +82,30 @@
             </div>
 
             <div class="workspace" id="workspace"
-                style="display: none; height: auto !important; min-height: calc(100vh - 200px) !important; align-items: flex-start !important;">
+                style="display: grid; height: auto !important; min-height: calc(100vh - 200px) !important; align-items: flex-start !important;">
                 <div class="pdf-viewer-container" style="height: auto !important; overflow: visible !important;">
+
+                    <div id="pdfUploadBar" style="
+                        display:flex; align-items:center; gap:8px;
+                        padding:8px 12px; background:#f0f4ff;
+                        border-bottom:1px solid #d0d8f0;
+                        flex-wrap:wrap;">
+                        <span style="font-size:0.85rem;color:#555;font-weight:600">📄 PDFを開く：</span>
+                        <button onclick="document.getElementById('fileInput').click()"
+                            style="padding:5px 12px;background:#444;color:#eee;border:none;border-radius:5px;cursor:pointer;font-size:0.83rem">
+                            💻 ローカルから選択
+                        </button>
+                        <button onclick="openPdfFromCloud('rdm')"
+                            style="padding:5px 12px;background:#555;color:#eee;border:none;border-radius:5px;cursor:pointer;font-size:0.83rem">
+                            🏛 GakuninRDMから
+                        </button>
+                        <button onclick="openPdfFromCloud('gdrive')"
+                            style="padding:5px 12px;background:#555;color:#eee;border:none;border-radius:5px;cursor:pointer;font-size:0.83rem">
+                            ☁️ Google Driveから
+                        </button>
+                        <input type="file" id="fileInput" accept=".pdf" hidden>
+                        <span id="pdfFileName" style="font-size:0.8rem;color:#888;margin-left:4px"></span>
+                    </div>
                     <div class="pdf-controls">
                         <div class="navigation-controls">
                             <button id="prevPage" disabled>← Prev</button>
@@ -102,8 +174,6 @@
                         </div>
                     </div>
 
-
-                    <!-- index.htmlの既存の.selection-inputsセクションをこれに置き換え -->
                     <div class="selection-inputs">
                         <div class="selection-header">
                             <h3>Text Selection</h3>
@@ -122,13 +192,14 @@
                         </div>
 
                         <div class="input-group" id="targetTextGroup">
-                            <label for="targetText">Target Poem Text:</label>
+                            <label for="targetText">Target Text:</label>
                             <textarea id="targetText" placeholder="Click to select text from the PDF..."></textarea>
                         </div>
                         <div class="input-group" id="sourceInfoGroup">
-                            <label for="sourceInfo">Source Influence Info:</label>
+                            <label for="sourceInfo">Source Text:</label>
                             <textarea id="sourceInfo" placeholder="Click to select footnote or reference..."></textarea>
-                            <div class="citation-controls" id="citationControls" style="display: none;">
+                            <!-- ✅ Find Sources ボタン（常に表示） -->
+                            <div class="citation-controls" id="citationControls">
                                 <button id="findSourcesBtn" class="find-sources-btn">
                                     <span class="btn-icon">🔍</span>
                                     Find Sources
@@ -137,11 +208,141 @@
                             </div>
                         </div>
                         <div class="action-buttons">
-                            <button id="saveData" disabled>Save Pair</button>
+                            <button id="saveData">Save Pair</button>
                             <button id="clearData">Clear</button>
                         </div>
                     </div>
 
+                    
+
+
+                    <!-- ========================================
+                         🆕 略語抽出セクション
+                         ======================================== -->
+                    <div class="abbreviations-section" id="abbreviationsSectionContainer" style="
+                        margin-bottom: 20px; 
+                        padding: 15px; 
+                        background: #f5f5f5; 
+                        border-radius: 8px; 
+                        display: none;
+                    ">
+                        <div style="
+                            display: flex; 
+                            justify-content: space-between; 
+                            align-items: center; 
+                            margin-bottom: 15px;
+                        ">
+                            <h3 style="margin: 0; font-size: 18px; color: #333;">
+                                📚 Extract Abbreviations
+                            </h3>
+                            <button id="extractAbbrBtn" style="
+                                padding: 10px 20px; 
+                                background: #2563eb; 
+                                color: white; 
+                                border: none; 
+                                border-radius: 5px; 
+                                cursor: pointer; 
+                                font-size: 14px; 
+                                font-weight: bold;
+                                transition: background 0.3s;
+                            " onmouseover="this.style.background='#1d4ed8'" onmouseout="this.style.background='#2563eb'">
+                                🔍 Auto-Extract
+                            </button>
+                        </div>
+
+                        <div class="loading-spinner" id="abbrLoadingSpinner" style="
+                            display: none;
+                            text-align: center;
+                            padding: 20px;
+                        ">
+                            <div style="
+                                border: 3px solid #f3f3f3;
+                                border-top: 3px solid #2563eb;
+                                border-radius: 50%;
+                                width: 30px;
+                                height: 30px;
+                                animation: spin 1s linear infinite;
+                                margin: 0 auto;
+                            "></div>
+                        </div>
+
+                        <div id="abbr-results" style="
+                            background: white; 
+                            border: 1px solid #ddd; 
+                            border-radius: 5px; 
+                            padding: 15px; 
+                            min-height: 100px; 
+                            max-height: 300px; 
+                            overflow-y: auto; 
+                            display: none;
+                        ">
+                            <div id="abbr-list"></div>
+                        </div>
+
+                        <div id="abbrEmptyMessage" style="
+                            text-align: center; 
+                            color: #999; 
+                            padding: 20px;
+                            font-size: 14px;
+                        ">
+                            ℹ Click "Auto-Extract" to start
+                        </div>
+
+                        <div style="
+                            margin-top: 15px;
+                            display: none;
+                            gap: 10px;
+                            flex-direction: row;
+                        " id="downloadButtonsContainer">
+                            <button id="downloadAbbrJson" style="
+                                flex: 1;
+                                padding: 8px 15px;
+                                background: #2196F3;
+                                color: white;
+                                border: none;
+                                border-radius: 5px;
+                                cursor: pointer;
+                                font-size: 13px;
+                            " onclick="if (window.abbrevExtractor) window.abbrevExtractor.downloadAsJSON()">
+                                💾 JSON
+                            </button>
+                            <button id="downloadAbbrCsv" style="
+                                flex: 1;
+                                padding: 8px 15px;
+                                background: #2196F3;
+                                color: white;
+                                border: none;
+                                border-radius: 5px;
+                                cursor: pointer;
+                                font-size: 13px;
+                            " onclick="if (window.abbrevExtractor) window.abbrevExtractor.downloadAsCSV()">
+                                💾 CSV
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ===== テキストペア抽出セクション ===== -->
+                    <!-- 重要: このセクションは data-panel の内部に配置されています -->
+                    <div id="textPairsSectionContainer" style="display: none;">
+                        <div style="background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border: 1px solid #e0e0e0;">
+                            <h3 style="margin-top: 0; margin-bottom: 10px; color: #333;">📖 Extract Text Pairs</h3>
+                            <p style="margin: 0 0 15px 0; color: #666; font-size: 0.9em;">Automatically extract target and source texts from footnotes on this page</p>
+
+                            <button id="extractTextPairsBtn" style="background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 1em; font-weight: bold; margin-bottom: 15px; transition: background 0.3s;" onmouseover="this.style.background='#1d4ed8'" onmouseout="this.style.background='#2563eb'">
+                                📖 Extract Text Pairs
+                            </button>
+
+                            <div id="pairsLoadingSpinner" style="display: none; text-align: center; margin: 15px 0;">
+                                <div style="border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 0 auto;"></div>
+                                <p style="color: #999; margin-top: 10px;">Processing...</p>
+                            </div>
+
+                            <div id="text-pairs-results" style="display: none;">
+                                <h4 style="color: #333; margin-top: 20px; margin-bottom: 15px;">Found Pairs:</h4>
+                                <div id="text-pairs-list" style="overflow-x: auto; border: 1px solid #ddd; border-radius: 4px;"></div>
+                            </div>
+                        </div>
+                    </div>
 
 
                     <div class="data-list">
@@ -149,10 +350,27 @@
                         <div class="data-count">0 pairs saved</div>
                         <div id="savedData" class="saved-data-container"></div>
                         <div class="export-controls">
-                            <button id="exportJson">Export as JSON</button>
-                            <button id="exportCsv">Export as CSV</button>
+                            <button id="exportMain" style="width:100%">💾 Export / ☁️ クラウド保存</button>
+                            <div style="display:none">
+                                <button id="exportDropdownBtn"></button>
+                                <ul id="exportDropdownMenu">
+                                    <li id="exportJson"></li>
+                                    <li id="exportCsv"></li>
+                                    <li id="exportRdm"></li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
+
+                    
+
+
+
+
+
+
+
+
                 </div>
             </div>
         </main>
@@ -162,43 +380,54 @@
         </div>
     </div>
 
+    <!-- ================================================== -->
+    <!-- MODALS -->
+    <!-- ================================================== -->
+
     <!-- Citation Candidates Modal -->
     <div class="modal-overlay" id="citationModal" style="display: none;">
         <div class="modal-container">
             <div class="modal-header">
                 <h2>Citation Sources Found</h2>
                 <button class="modal-close" id="closeCitationModal">&times;</button>
+                <div class="citation-search">
+                    <input
+                        class="citation-search-input"
+                        id="citationSearchInput"
+                        placeholder="Enter citation or work name..."
+                    />
+                    <button id="searchAgainBtn" class="search-again-btn">
+                        🔍 Search
+                    </button>
+                </div>
+                <div class="search-tips">
+                    💡 Try: "Paradise Lost 1-10", "Genesis 1:1", or "Absalom and Achitophel"
+                </div>
             </div>
 
-            <div class="modal-content">
-                <div class="citation-query">
-                    <strong>Looking for:</strong> <span id="queriedCitation"></span>
-                </div>
+            <div class="source-type-tabs">
+                <button class="tab-btn active" data-tab="all">All Sources</button>
+                <button class="tab-btn" data-tab="literature">Literature</button>
+                <button class="tab-btn" data-tab="bible">Bible</button>
+            </div>
 
-                <div class="source-type-tabs">
-                    <button class="tab-btn active" data-tab="all">All Sources</button>
-                    <button class="tab-btn" data-tab="literature">Literature</button>
-                    <button class="tab-btn" data-tab="bible">Bible</button>
+            <div class="candidates-container" id="candidatesContainer">
+                <div id="citationCandidates"></div>
+                <div class="loading-candidates" id="loadingCandidates">
+                    <div class="spinner"></div>
+                    <span>Searching sources...</span>
                 </div>
-
-                <div class="candidates-container" id="candidatesContainer">
-                    <div class="loading-candidates" id="loadingCandidates">
-                        <div class="spinner"></div>
-                        <span>Searching sources...</span>
-                    </div>
-                    <div class="candidates-list" id="candidatesList"></div>
-                    <div class="no-candidates" id="noCandidates" style="display: none;">
-                        <div class="no-results-icon">📚</div>
-                        <h3>No sources found</h3>
-                        <p>No matching passages were found for this citation. Try editing the citation text or check for
-                            typos.</p>
-                    </div>
+                <div class="candidates-list" id="candidatesList"></div>
+                <div class="no-candidates" id="noCandidates" style="display: none;">
+                    <div class="no-results-icon">📚</div>
+                    <h3>No sources found</h3>
+                    <p>Try a different search term above, or check for typos.</p>
                 </div>
             </div>
 
             <div class="modal-footer">
                 <button class="btn-secondary" id="cancelCitationLookup">Cancel</button>
-                <button class="btn-primary" id="retryLookup">Try Different Text</button>
+                <button class="btn-primary" id="useCurrentSearch">Use Current Search</button>
             </div>
         </div>
     </div>
@@ -220,6 +449,97 @@
                     <div class="summary-section">
                         <h4>Target Text:</h4>
                         <div class="target-preview" id="targetTextPreview"></div>
+                    </div>
+                </div>
+
+                <!-- Search Box for Re-searching -->
+                <div class="citation-search-box">
+                    <label for="confirmationCitationInput">
+                        <strong>Search for sources:</strong>
+                    </label>
+                    <div class="search-input-group">
+                        <input 
+                            type="text" 
+                            id="confirmationCitationInput" 
+                        />
+                    </div>
+                </div>
+
+                <!-- Influence Rating Section -->
+                <div class="rating-section">
+                    <div class="rating-header">
+                        <h4>⭐ Influence Rating</h4>
+                        <button class="rating-info-btn" id="showRatingGuide" type="button" title="Show rating criteria">
+                            ℹ️ Guide
+                        </button>
+                    </div>
+                    
+                    <div class="rating-options">
+                        <label class="rating-option">
+                            <input type="radio" name="influenceRating" value="5" required>
+                            <span class="rating-label">
+                                <span class="rating-number">5</span>
+                                <span class="rating-desc">Strong influence (cited) / つよい影響</span>
+                            </span>
+                        </label>
+                        <label class="rating-option">
+                            <input type="radio" name="influenceRating" value="4">
+                            <span class="rating-label">
+                                <span class="rating-number">4</span>
+                                <span class="rating-desc">Moderate influence (source) / 中程度の影響</span>
+                            </span>
+                        </label>
+                        <label class="rating-option">
+                            <input type="radio" name="influenceRating" value="3">
+                            <span class="rating-label">
+                                <span class="rating-number">3</span>
+                                <span class="rating-desc">Some influence (association) / 少しの影響</span>
+                            </span>
+                        </label>
+                        <label class="rating-option">
+                            <input type="radio" name="influenceRating" value="2">
+                            <span class="rating-label">
+                                <span class="rating-number">2</span>
+                                <span class="rating-desc">Different passage (mentioned) / 別の箇所</span>
+                            </span>
+                        </label>
+                        <label class="rating-option">
+                            <input type="radio" name="influenceRating" value="1">
+                            <span class="rating-label">
+                                <span class="rating-number">1</span>
+                                <span class="rating-desc">Similar author (not cited) / 同種の著者</span>
+                            </span>
+                        </label>
+                    </div>
+
+                    <div class="rating-guide" id="ratingGuide" style="display: none;">
+                        <div class="guide-content">
+                            <h5>Rating Criteria / 評価基準</h5>
+                            <div class="guide-item">
+                                <strong>5:</strong> Critics mentioned and strongly influenced - citation<br>
+                                <span class="guide-jp">該当箇所の指摘（注）があり、つよい影響が認められる</span>
+                            </div>
+                            <div class="guide-item">
+                                <strong>4:</strong> Critics mentioned and moderately influenced – source, borrowing, repeating the same theme<br>
+                                <span class="guide-jp">該当箇所の指摘（注）があり、中程度に影響があると認められる</span>
+                            </div>
+                            <div class="guide-item">
+                                <strong>3:</strong> Critics mentioned and somewhat influenced – association, source<br>
+                                <span class="guide-jp">該当箇所の指摘（注）があり、少し影響があると認められる</span>
+                            </div>
+                            <div class="guide-item">
+                                <strong>2:</strong> Influence mentioned but not admitted – source text A and influenced text B but different lines<br>
+                                <span class="guide-jp">影響があるが認められない - 作品自体は影響あると指摘のある詩作品であるが、その影響は別の箇所である</span>
+                            </div>
+                            <div class="guide-item">
+                                <strong>1:</strong> Influence may not exist – not mentioned, but same or similar taste author's texts<br>
+                                <span class="guide-jp">影響はないかもしれない - 影響があるとの指摘はないが、同じまたは同種の著者の作品である</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="rating-validation" id="ratingValidation" style="display: none; color: #d32f2f; margin-top: 8px;">
+                        ⚠️ Please select a rating before saving
                     </div>
                 </div>
             </div>
@@ -277,36 +597,36 @@
         </div>
     </div>
 
-    <!-- Configuration File (Load First!) -->
-    <script src="gutenberg-config.js"></script>
-    <script src="bible-config.js"></script>
-    <script src="BibleProvider.js"></script>
+    <!-- ================================================== -->
+    <!-- SCRIPTS (Order is CRITICAL!)
+         1. Configuration & Base Utilities
+         2. Providers & Loaders
+         3. Full-Text Viewer (MUST be before citation-integration.js)
+         4. Citation Integration (depends on FullTextViewer)
+         5. Main App
+    ================================================== -->
 
-    <!-- Phase 1: On-Demand Loading System (70,000+ works) -->
+    <!-- Step 1: Configuration & Base Utilities -->
+    <script src="corpus-config.js"></script>
+    <script src="extractLineRange.js"></script>
+
+    <!-- Step 2: Providers & Loaders -->
+    <script src="BibleProvider.js"></script>
     <script src="GutenbergMirrorLoader.js"></script>
     <script src="TextCleaner.js"></script>
     <script src="CacheManager.js"></script>
     <script src="OnDemandTextLoader.js"></script>
     <script src="ExtendedCSVCatalogSystem.js"></script>
 
-    <!-- Diagnostic and Testing Tools -->
-    <script src="system-diagnostics.js"></script>
-    <script src="test-on-demand-system.js"></script>
-
-    <!-- Auto-initialization (CRITICAL - Load before patch) -->
-    <script src="auto-init.js"></script>
-
-    <!-- Extended CSV Catalog Integration Patch (MUST be before citation-integration.js) -->
-    <script src="citation-integration-patch.js"></script>
-
-    <!-- Original Scripts -->
-    <script src="app.js"></script>
-    <script src="citation-catalog.js"></script>
-    <script src="dynamic-work-catalog.js"></script>
-    <script src="csv-catalog-system.js"></script>
+    <!-- Step 3: Viewer Components (MUST be BEFORE citation-integration.js!) -->
     <script src="full-text-viewer.js"></script>
+
+    <!-- Step 4: Citation Integration (depends on FullTextViewer) -->
     <script src="citation-integration.js"></script>
-    <script src="extractLineRange.js"></script>
+
+    <!-- Step 5: Main Application -->
+    <script src="app.js"></script>
+    <script src="storage-modal.js"></script>
 </body>
 
 </html>

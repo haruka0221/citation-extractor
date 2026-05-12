@@ -1,3 +1,27 @@
+/**
+ * PoetryAnalysisTool - 修正版
+ * 
+ * 修正内容：
+ * 1. pdfjsLib.renderTextLayer の存在確認を追加
+ * 2. fillFromTextPair メソッドを追加
+ * 3. corpus-config.js 対応の準備
+ * 4. エラーハンドリング改善
+ * 5. 初期化時のログ改善
+ */
+
+// ========== corpus-config.js 確認関数 ==========
+function verifyCorpusConfig() {
+    if (typeof window.corpusConfig === 'undefined') {
+        console.warn('⚠️ corpus-config.js not loaded');
+        console.warn('   Add to index.html: <script src="corpus-config.js"></script>');
+        return false;
+    }
+    console.log('✅ corpus-config.js loaded');
+    console.log('   Gutenberg enabled:', window.corpusConfig.gutenberg?.enabled);
+    console.log('   Bible enabled:', window.corpusConfig.bible?.enabled);
+    return true;
+}
+
 class PoetryAnalysisTool {
     constructor() {
         this.pdfDoc = null;
@@ -16,6 +40,8 @@ class PoetryAnalysisTool {
         this.scrollThrottle = null;
         this.renderedPages = new Set(); // Track which pages are rendered
         this.pageElements = new Map(); // Store page elements
+        this.isDirectSaveMode = false; // Flag for direct save vs candidate selection
+        this.pendingSaveData = null; // Temporary storage for direct save
         this.metadata = {
             title: '',
             author: '',
@@ -33,6 +59,9 @@ class PoetryAnalysisTool {
 
     init() {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // 修正: corpus-config を確認
+        verifyCorpusConfig();
 
         this.bindEvents();
         this.updateStatus('Ready to upload PDF...');
@@ -57,7 +86,11 @@ class PoetryAnalysisTool {
         const updateMetadataBtn = document.getElementById('updateMetadata');
         const resetMetadataBtn = document.getElementById('resetMetadata');
 
-        fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
+        fileInput.addEventListener('change', (e) => {
+            const fname = document.getElementById('pdfFileName');
+            if (fname && e.target.files[0]) fname.textContent = e.target.files[0].name;
+            this.handleFileUpload(e);
+        });
 
         uploadArea.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -93,8 +126,39 @@ class PoetryAnalysisTool {
         saveDataBtn.addEventListener('click', () => this.saveCurrentPair());
         clearDataBtn.addEventListener('click', () => this.clearCurrentSelection());
 
+        // Exportメインボタン → JSON（デフォルト）
         exportJsonBtn.addEventListener('click', () => this.exportAsJSON());
         exportCsvBtn.addEventListener('click', () => this.exportAsCSV());
+        document.getElementById('exportMain').addEventListener('click', () => {
+            StorageModal.open({
+                toolName: 'chushutsu',
+                data: this.savedData,
+                onSaveJSON: () => this.exportAsJSON(),
+                onSaveCSV:  () => this.exportAsCSV(),
+                onLoad: (data) => {
+                    if (data.data && Array.isArray(data.data)) {
+                        this.savedData = data.data;
+                        this.updateDataDisplay();
+                        this.updateStatus(`${this.savedData.length}件のデータを読み込みました`);
+                    }
+                }
+            });
+        });
+        document.getElementById('exportRdm').addEventListener('click', () => {
+            StorageModal.open({
+                toolName: 'chushutsu',
+                data: this.savedData,
+                onSaveJSON: () => this.exportAsJSON(),
+                onSaveCSV:  () => this.exportAsCSV(),
+                onLoad: (data) => {
+                    if (data.data && Array.isArray(data.data)) {
+                        this.savedData = data.data;
+                        this.updateDataDisplay();
+                        this.updateStatus(`${this.savedData.length}件のデータを読み込みました`);
+                    }
+                }
+            });
+        });
 
         updateMetadataBtn.addEventListener('click', () => this.updateMetadata());
         resetMetadataBtn.addEventListener('click', () => this.resetMetadata());
@@ -121,6 +185,114 @@ class PoetryAnalysisTool {
                 this.updateStatus('Auto-fill disabled - Manual input mode');
             }
         });
+
+        // ========================================
+        // 🆕 略語抽出ボタン
+        // ========================================
+        const extractAbbrBtn = document.getElementById('extractAbbrBtn');
+        if (extractAbbrBtn) {
+            extractAbbrBtn.addEventListener('click', async () => {
+                if (!this.pdfDoc) {
+                    alert('❌ PDFを先にアップロードしてください');
+                    return;
+                }
+
+                try {
+                    extractAbbrBtn.disabled = true;
+                    extractAbbrBtn.textContent = '⏳ 処理中...';
+
+                    const spinner = document.getElementById('abbrLoadingSpinner');
+                    if (spinner) spinner.style.display = 'block';
+
+                    if (!window.abbrevExtractor) {
+                        window.abbrevExtractor = new AbbreviationExtractor(this.pdfDoc);
+                    } else {
+                        window.abbrevExtractor.pdfDoc = this.pdfDoc;
+                    }
+
+                    window.abbrevExtractor.useOpenAI = true;
+                    const abbreviations = await window.abbrevExtractor.extractAbbreviations();
+
+                    if (abbreviations && abbreviations.length > 0) {
+                        const downloadContainer = document.getElementById('downloadButtonsContainer');
+                        if (downloadContainer) downloadContainer.style.display = 'flex';
+                    } else {
+                        alert('⚠️ 略語が見つかりませんでした');
+                    }
+
+                } catch (error) {
+                    console.error('❌ エラー:', error);
+                    alert('❌ エラー:\n\n' + error.message);
+                } finally {
+                    extractAbbrBtn.disabled = false;
+                    extractAbbrBtn.textContent = '🔍 Auto-Extract';
+                    const spinner = document.getElementById('abbrLoadingSpinner');
+                    if (spinner) spinner.style.display = 'none';
+                }
+            });
+        }
+
+        // ========================================
+        // 🆕 テキストペア抽出ボタン
+        // ========================================
+        const extractTextPairsBtn = document.getElementById('extractTextPairsBtn');
+        if (extractTextPairsBtn) {
+            extractTextPairsBtn.addEventListener('click', async () => {
+                if (!this.pdfDoc) {
+                    alert('❌ PDFを先にアップロードしてください');
+                    return;
+                }
+
+                try {
+                    extractTextPairsBtn.disabled = true;
+                    extractTextPairsBtn.textContent = '⏳ 処理中...';
+
+                    const spinner = document.getElementById('pairsLoadingSpinner');
+                    if (spinner) spinner.style.display = 'block';
+
+                    if (!window.textPairExtractor) {
+                        window.textPairExtractor = new TextPairExtractor(
+                            this.pdfDoc,
+                            this.currentPage,
+                            this.scale
+                        );
+                    } else {
+                        window.textPairExtractor.pdfDoc = this.pdfDoc;
+                        window.textPairExtractor.currentPage = this.currentPage;
+                        window.textPairExtractor.scale = this.scale;
+                    }
+
+                    await window.textPairExtractor.extractTextPairs();
+
+                } catch (error) {
+                    console.error('❌ エラー:', error);
+                    alert('❌ エラー:\n\n' + error.message);
+                } finally {
+                    extractTextPairsBtn.disabled = false;
+                    extractTextPairsBtn.textContent = '📖 Extract Text Pairs';
+                    const spinner = document.getElementById('pairsLoadingSpinner');
+                    if (spinner) spinner.style.display = 'none';
+                }
+            });
+        }
+
+        // Initialize indicator after PDF loads
+        this.updateTargetIndicator();
+
+        // Confirm & Save button in confirmation modal
+        const confirmSelectionBtn = document.getElementById('confirmSelection');
+        if (confirmSelectionBtn) {
+            confirmSelectionBtn.addEventListener('click', () => this.confirmDirectSave());
+        }
+
+        // Cancel button in confirmation modal
+        const closeConfirmationModal = document.getElementById('closeConfirmationModal');
+        if (closeConfirmationModal) {
+            closeConfirmationModal.addEventListener('click', () => {
+                const modal = document.getElementById('confirmationModal');
+                if (modal) modal.style.display = 'none';
+            });
+        }
         // Initialize indicator after PDF loads
         this.updateTargetIndicator();
     }
@@ -182,8 +354,10 @@ class PoetryAnalysisTool {
                 errorMessage += error.message;
             } else if (error.message.includes('empty')) {
                 errorMessage += 'The PDF appears to be empty.';
+            } else if (error.message.includes('Worker')) {
+                errorMessage += 'PDF.js worker failed to load. Check browser console.';
             } else {
-                errorMessage += 'Please check the file and try again.';
+                errorMessage += error.message || 'Please check the file and try again.';
             }
 
             this.updateStatus(errorMessage);
@@ -191,6 +365,17 @@ class PoetryAnalysisTool {
             // Show upload section again
             document.getElementById('uploadSection').style.display = 'block';
             document.getElementById('workspace').style.display = 'none';
+        }
+
+        //  セクション表示
+        const abbreviationsSectionContainer = document.getElementById('abbreviationsSectionContainer');
+        if (abbreviationsSectionContainer) {
+            abbreviationsSectionContainer.style.display = 'block';
+        }
+
+        const textPairsSectionContainer = document.getElementById('textPairsSectionContainer');
+        if (textPairsSectionContainer) {
+            textPairsSectionContainer.style.display = 'block';
         }
     }
 
@@ -290,8 +475,8 @@ class PoetryAnalysisTool {
             const naturalViewport = page.getViewport({ scale: 1.0 });
             const viewport = page.getViewport({ scale: this.scale });
 
-            console.log(`Page ${pageNum} natural dimensions:`, naturalViewport.width, 'x', naturalViewport.height);
-            console.log(`Page ${pageNum} scaled dimensions:`, viewport.width, 'x', viewport.height);
+            console.log(`Page ${pageNum} natural dimensions: ${naturalViewport.width} x ${naturalViewport.height}`);
+            console.log(`Page ${pageNum} scaled dimensions: ${viewport.width} x ${viewport.height}`);
 
             const pageElements = this.pageElements.get(pageNum);
             if (!pageElements) return;
@@ -347,25 +532,40 @@ class PoetryAnalysisTool {
         }
     }
 
+    // 修正: pdfjsLib.renderTextLayer の存在確認を追加
     async renderTextLayerForPage(page, viewport, textLayerDiv, pageNum) {
         try {
             // Get text content from PDF.js
             const textContent = await page.getTextContent();
 
-            // Use PDF.js renderTextLayer function with proper positioning
-            await pdfjsLib.renderTextLayer({
-                textContentSource: textContent,
-                container: textLayerDiv,
-                viewport: viewport,
-                textDivs: [],
-                isOffscreenCanvasSupported: true
-            }).promise;
+            // 修正: pdfjsLib.renderTextLayer をチェック
+            if (typeof pdfjsLib.renderTextLayer === 'function') {
+                try {
+                    // Use PDF.js renderTextLayer function with proper positioning
+                    await pdfjsLib.renderTextLayer({
+                        textContentSource: textContent,
+                        container: textLayerDiv,
+                        viewport: viewport,
+                        textDivs: [],
+                        isOffscreenCanvasSupported: true
+                    }).promise;
 
-            console.log(`Text layer for page ${pageNum} rendered successfully`);
+                    console.log(`Text layer for page ${pageNum} rendered successfully`);
+                    return;
+                } catch (innerError) {
+                    console.warn(`pdfjsLib.renderTextLayer failed: ${innerError.message}`);
+                    // Fall through to fallback
+                }
+            } else {
+                console.warn('⚠️ pdfjsLib.renderTextLayer not available. Using fallback.');
+            }
+
+            // Fallback to custom text overlay
+            await this.createSelectableTextOverlayForPage(page, viewport, textLayerDiv, pageNum);
 
         } catch (error) {
-            console.warn(`PDF.js text layer failed for page ${pageNum}, using fallback:`, error);
-            // Fallback to custom text overlay
+            console.error(`Error rendering text layer for page ${pageNum}:`, error);
+            // Final fallback
             await this.createSelectableTextOverlayForPage(page, viewport, textLayerDiv, pageNum);
         }
     }
@@ -489,8 +689,8 @@ class PoetryAnalysisTool {
 This is a test text overlay. You should be able to:
 1. Click and drag to select this text
 2. Selected text will appear in the input fields below
-3. First selection goes to "Target Poem Text"
-4. Second selection goes to "Source Influence Info"
+3. First selection goes to "Target Text"
+4. Second selection goes to "Source Text"
 
 Try selecting this text now! If you can select this text, the system is working.
 
@@ -601,9 +801,7 @@ This text should be fully selectable. Try highlighting different portions to tes
             targetTextGroup.classList.add('completed');
             this.updateStatus(`✓ Source info captured! Ready to save or select new target`);
 
-            if (window.citationIntegration) {
-                window.citationIntegration.handleSourceInfoChange();
-            }
+
         }
 
         this.selectionCount++;
@@ -748,7 +946,7 @@ This text should be fully selectable. Try highlighting different portions to tes
         // Clear all rendered pages and re-render visible ones
         this.renderedPages.clear();
 
-        // Clear all page contents
+        // Properly clean up all page contents
         this.pageElements.forEach((elements, pageNum) => {
             elements.content.innerHTML = '';
         });
@@ -798,20 +996,112 @@ This text should be fully selectable. Try highlighting different portions to tes
         const sourceInfo = document.getElementById('sourceInfo').value.trim();
 
         if (targetText && sourceInfo) {
-            const dataPair = {
-                id: Date.now(),
-                timestamp: new Date().toISOString(),
-                page: this.currentPage,
-                targetText: targetText,
-                sourceInfo: sourceInfo
-            };
-
-            this.savedData.push(dataPair);
-            this.saveToStorage();
-            this.updateDataDisplay();
-            this.clearCurrentSelection();
-            this.updateStatus('Data pair saved successfully!');
+            // Show confirmation modal with rating for direct save
+            this.showDirectSaveConfirmation(targetText, sourceInfo);
         }
+    }
+
+    /**
+     * Show confirmation modal for direct save (without candidate selection)
+     */
+    showDirectSaveConfirmation(targetText, sourceInfo) {
+        // Store data temporarily
+        this.pendingSaveData = {
+            targetText: targetText,
+            sourceInfo: sourceInfo,
+            page: this.currentPage
+        };
+
+        // Populate confirmation dialog
+        const selectedSourcePreview = document.getElementById('selectedSourcePreview');
+        const targetTextPreview = document.getElementById('targetTextPreview');
+
+        if (selectedSourcePreview) {
+            selectedSourcePreview.innerHTML = `
+                <strong>Direct Input (Manual Entry)</strong><br>
+                ${sourceInfo.substring(0, 200)}${sourceInfo.length > 200 ? '...' : ''}
+            `;
+        }
+
+        if (targetTextPreview) {
+            targetTextPreview.textContent = targetText.substring(0, 200) + (targetText.length > 200 ? '...' : '');
+        }
+
+        // Reset rating selection
+        const ratingInputs = document.querySelectorAll('input[name="influenceRating"]');
+        ratingInputs.forEach(input => input.checked = false);
+
+        // Hide validation message
+        const validation = document.getElementById('ratingValidation');
+        if (validation) {
+            validation.style.display = 'none';
+        }
+
+        // Hide rating guide
+        const ratingGuide = document.getElementById('ratingGuide');
+        if (ratingGuide) {
+            ratingGuide.style.display = 'none';
+        }
+
+        // Reset guide button text
+        const showRatingGuideBtn = document.getElementById('showRatingGuide');
+        if (showRatingGuideBtn) {
+            showRatingGuideBtn.textContent = 'ℹ️ Guide';
+        }
+
+        // Show confirmation modal
+        const confirmationModal = document.getElementById('confirmationModal');
+        if (confirmationModal) {
+            confirmationModal.style.display = 'flex';
+        }
+
+        // Mark this as direct save mode
+        this.isDirectSaveMode = true;
+    }
+
+    /**
+     * Confirm and save with rating (called from modal)
+     */
+    confirmDirectSave() {
+        // Get influence rating
+        const ratingInput = document.querySelector('input[name="influenceRating"]:checked');
+        const influenceRating = ratingInput ? parseInt(ratingInput.value) : null;
+
+        // Validate rating
+        if (!influenceRating) {
+            const validation = document.getElementById('ratingValidation');
+            if (validation) {
+                validation.style.display = 'block';
+            }
+            return;
+        }
+
+        // Create data pair with rating
+        const dataPair = {
+            id: Date.now(),
+            timestamp: new Date().toISOString(),
+            page: this.pendingSaveData.page,
+            targetText: this.pendingSaveData.targetText,
+            sourceInfo: this.pendingSaveData.sourceInfo,
+            influenceRating: influenceRating
+        };
+
+        this.savedData.push(dataPair);
+        this.saveToStorage();
+        this.updateDataDisplay();
+
+        // Close modal
+        const confirmationModal = document.getElementById('confirmationModal');
+        if (confirmationModal) {
+            confirmationModal.style.display = 'none';
+        }
+
+        this.clearCurrentSelection();
+        this.updateStatus(`Data pair saved with rating ${influenceRating}/5!`);
+
+        // Clear temporary data
+        this.pendingSaveData = null;
+        this.isDirectSaveMode = false;
     }
 
     clearCurrentSelection() {
@@ -880,12 +1170,29 @@ This text should be fully selectable. Try highlighting different portions to tes
         this.savedData.slice().reverse().forEach((item) => {
             const itemElement = document.createElement('div');
             itemElement.className = 'data-item';
+
+            // Rating display
+            let ratingHTML = '';
+            if (item.influenceRating) {
+                const ratingLabels = {
+                    5: 'Strong influence',
+                    4: 'Moderate influence',
+                    3: 'Some influence',
+                    2: 'Different passage',
+                    1: 'Similar author'
+                };
+                const ratingLabel = ratingLabels[item.influenceRating] || 'Unknown';
+                const stars = '⭐'.repeat(item.influenceRating);
+                ratingHTML = `<div class="rating-display">${stars} ${item.influenceRating}/5 - ${ratingLabel}</div>`;
+            }
+
             itemElement.innerHTML = `
                 <div class="data-item-header">
                     <span class="data-item-id">ID: ${item.id} | Page: ${item.page}</span>
                     <button class="delete-btn" onclick="app.deleteDataItem(${item.id})">Delete</button>
                 </div>
                 <div class="data-item-content">
+                    ${ratingHTML}
                     <div class="target-text">${this.truncateText(item.targetText, 100)}</div>
                     <div class="source-info">${this.truncateText(item.sourceInfo, 80)}</div>
                 </div>
@@ -928,6 +1235,92 @@ This text should be fully selectable. Try highlighting different portions to tes
         }
     }
 
+    async exportToRdm() {
+        if (this.savedData.length === 0) {
+            this.updateStatus('保存するデータがありません。');
+            return;
+        }
+
+        // ログイン確認
+        let statusRes;
+        try {
+            statusRes = await fetch('/session/status', { credentials: 'include' });
+        } catch(e) {
+            alert('セッションAPIに接続できません。');
+            return;
+        }
+        const status = await statusRes.json();
+        if (!status.logged_in) {
+            if (confirm('GakuninRDMへの保存にはログインが必要です。ログインページに移動しますか？')) {
+                // 先にデータをセッションに保存してからログインへ
+                const preData = {
+                    metadata: { exportDate: new Date().toISOString(), totalPairs: this.savedData.length },
+                    data: this.savedData
+                };
+                await this.saveToSession(preData);
+                // ログイン後にこのページ+自動アップロードフラグで戻る
+                const next = encodeURIComponent(location.pathname + '?rdm_auto_upload=chushutsu');
+                window.location.href = '/auth/rdm/login?redirect_to=' + next;
+            }
+            return;
+        }
+
+        // プロジェクト一覧を取得
+        let projects;
+        try {
+            const projRes = await fetch('/session/rdm/projects', { credentials: 'include' });
+            projects = await projRes.json();
+        } catch(e) {
+            alert('プロジェクト一覧の取得に失敗しました。');
+            return;
+        }
+
+        if (!projects.length) {
+            alert('GakuninRDMにプロジェクトが見つかりません。');
+            return;
+        }
+
+        // プロジェクト選択ダイアログ
+        const options = projects.map((p, i) => `${i + 1}. ${p.title}`).join('\n');
+        const answer = prompt(`保存先プロジェクトを番号で選んでください:\n\n${options}`);
+        if (!answer) return;
+        const idx = parseInt(answer) - 1;
+        if (idx < 0 || idx >= projects.length) {
+            alert('正しい番号を入力してください。');
+            return;
+        }
+        const project = projects[idx];
+
+        // まずセッションに保存してからアップロード
+        const exportData = {
+            metadata: { exportDate: new Date().toISOString(), totalPairs: this.savedData.length },
+            data: this.savedData
+        };
+        await this.saveToSession(exportData);
+
+        // RDMにアップロード
+        this.updateStatus('GakuninRDMにアップロード中...');
+        try {
+            const res = await fetch('/session/rdm/upload/chushutsu', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_id: project.id })
+            });
+            const result = await res.json();
+            if (result.status === 'uploaded') {
+                this.updateStatus(`✅ GakuninRDMに保存しました: ${result.filename}`);
+                alert(`GakuninRDM「${project.title}」に保存しました。\nファイル名: ${result.filename}`);
+            } else {
+                this.updateStatus('❌ アップロードに失敗しました。');
+                alert('アップロードに失敗しました: ' + JSON.stringify(result));
+            }
+        } catch(e) {
+            this.updateStatus('❌ アップロードエラー。');
+            alert('エラー: ' + e.message);
+        }
+    }
+
     exportAsJSON() {
         if (this.savedData.length === 0) {
             this.updateStatus('No data to export.');
@@ -955,6 +1348,7 @@ This text should be fully selectable. Try highlighting different portions to tes
             'poetry-analysis-data.json',
             'application/json'
         );
+        this.saveToSession(exportData);
 
         this.updateStatus('Data exported as JSON.');
     }
@@ -981,8 +1375,24 @@ This text should be fully selectable. Try highlighting different portions to tes
         ].join('\n');
 
         this.downloadFile(csvContent, 'poetry-analysis-data.csv', 'text/csv');
+        this.saveToSession({ metadata: exportData, csvContent });
         this.updateStatus('Data exported as CSV.');
     }
+
+async saveToSession(data) {
+        try {
+            await fetch('/session/save/chushutsu', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data })
+            });
+            console.log('セッションに保存しました');
+        } catch (e) {
+            console.warn('セッション保存失敗（オフラインでも動作継続）:', e);
+        }
+    }
+
 
     downloadFile(content, filename, contentType) {
         const blob = new Blob([content], { type: contentType });
@@ -1212,6 +1622,68 @@ This text should be fully selectable. Try highlighting different portions to tes
         this.updateStatus('Document information reset to detected values');
     }
 
+    /**
+ * 略語テーブルから Source Info を入力
+ */
+    fillSourceInfoFromAbbr(abbr, full) {
+        const sourceInfoArea = document.getElementById('sourceInfo');
+        if (sourceInfoArea) {
+            const currentContent = sourceInfoArea.value.trim();
+
+            if (currentContent) {
+                sourceInfoArea.value = `${full} (${abbr})\n${currentContent}`;
+            } else {
+                sourceInfoArea.value = `${full}\n`;
+            }
+
+            sourceInfoArea.focus();
+            console.log('✅ Source Info に自動入力:', full);
+            sourceInfoArea.dispatchEvent(new Event('input'));
+        }
+    }
+
+    /**
+     * 修正: テキストペア抽出表から自動入力するメソッド
+     * @param {string} targetText - ターゲットテキスト
+     * @param {string} sourceText - ソーステキスト
+     */
+    fillFromTextPair(targetText, sourceText) {
+        console.log('🔄 fillFromTextPair() called');
+
+        const targetArea = document.getElementById('targetText');
+        const sourceArea = document.getElementById('sourceInfo');
+
+        if (targetArea) {
+            targetArea.value = targetText;
+            this.currentSelection.target = targetText;
+
+            const targetTextGroup = document.getElementById('targetTextGroup');
+            if (targetTextGroup) {
+                targetTextGroup.classList.remove('next-target');
+                targetTextGroup.classList.add('completed');
+            }
+
+            console.log('✅ Target text filled');
+        }
+
+        setTimeout(() => {
+            if (sourceArea) {
+                sourceArea.value = sourceText;
+                this.currentSelection.source = sourceText;
+
+                const sourceInfoGroup = document.getElementById('sourceInfoGroup');
+                if (sourceInfoGroup) {
+                    sourceInfoGroup.classList.add('completed');
+                }
+
+                console.log('✅ Source text filled');
+                sourceArea.dispatchEvent(new Event('input'));
+            }
+        }, 200);
+
+        this.updateSaveButton();
+    }
+
     updateStatus(message) {
         const statusBar = document.getElementById('statusBar');
         statusBar.textContent = message;
@@ -1227,11 +1699,135 @@ This text should be fully selectable. Try highlighting different portions to tes
 let app;
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 修正: corpus-config を確認
+    verifyCorpusConfig();
+
     app = new PoetryAnalysisTool();
     // Make app globally available for citation integration
     window.poetryApp = app;
-    console.log('Poetry Analysis Tool initialized');
-    console.log('Container constraints removed - full PDF display enabled');
+    window.app = app;  // 追加: window.app を設定
+
+    // ログイン後にPDFピッカーを自動オープン
+    const urlParamsAll = new URLSearchParams(window.location.search);
+    const pdfSource = urlParamsAll.get('pdf_source');
+    if (pdfSource) {
+        history.replaceState({}, '', location.pathname);
+        setTimeout(function() {
+            openPdfFromCloud(pdfSource);
+        }, 500);
+    }
+
+    // ストレージモーダル自動オープン（RDM/Google Drive接続後に戻ったとき）
+    if (urlParamsAll.get('storage_modal') === '1') {
+        history.replaceState({}, '', location.pathname);
+        setTimeout(function() {
+            const saved = localStorage.getItem('poetryAnalysisData');
+            if (saved && window.app) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    if (parsed.length > 0 && window.app.savedData.length === 0) {
+                        window.app.savedData = parsed;
+                        window.app.updateDataDisplay();
+                    }
+                } catch(e) {}
+            }
+            StorageModal.open({
+                toolName: 'chushutsu',
+                data: window.app ? window.app.savedData : [],
+                onSaveJSON: () => window.app && window.app.exportAsJSON(),
+                onSaveCSV:  () => window.app && window.app.exportAsCSV(),
+                onLoad: (data) => {
+                    if (data.data && Array.isArray(data.data) && window.app) {
+                        window.app.savedData = data.data;
+                        window.app.updateDataDisplay();
+                        window.app.updateStatus(data.data.length + '件のデータを読み込みました');
+                    }
+                }
+            });
+        }, 800);
+    }
+
+    // ログイン後の自動アップロード検知（インスタンス生成後に実行）
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('rdm_auto_upload') && urlParams.get('rdm_login') === 'success') {
+        history.replaceState({}, '', location.pathname);
+        setTimeout(async function() {
+            // セッションからデータ復元
+            try {
+                const loadRes = await fetch('/session/load/chushutsu', { credentials: 'include' });
+                if (loadRes.ok) {
+                    const sessionData = await loadRes.json();
+                    if (sessionData.data && Array.isArray(sessionData.data) && sessionData.data.length > 0) {
+                        window.app.savedData = sessionData.data;
+                        window.app.updateDataDisplay();
+                    }
+                }
+            } catch(e) {
+                console.warn('セッションデータの復元に失敗:', e);
+            }
+
+            if (window.app.savedData.length === 0) {
+                alert('保存するデータがありません。');
+                return;
+            }
+
+            // プロジェクト一覧取得（ログインチェックなしで直接実行）
+            let projects;
+            try {
+                const projRes = await fetch('/session/rdm/projects', { credentials: 'include' });
+                if (!projRes.ok) {
+                    alert('プロジェクト一覧の取得に失敗しました。再度ログインしてください。');
+                    return;
+                }
+                projects = await projRes.json();
+            } catch(e) {
+                alert('プロジェクト一覧の取得に失敗しました: ' + e.message);
+                return;
+            }
+
+            if (!projects.length) {
+                alert('GakuninRDMにプロジェクトが見つかりません。');
+                return;
+            }
+
+            const options = projects.map((p, i) => (i + 1) + '. ' + p.title).join('\n');
+            const answer = prompt('保存先プロジェクトを番号で選んでください:\n\n' + options);
+            if (!answer) return;
+            const idx = parseInt(answer) - 1;
+            if (idx < 0 || idx >= projects.length) {
+                alert('正しい番号を入力してください。');
+                return;
+            }
+            const project = projects[idx];
+
+            // アップロード
+            window.app.updateStatus('GakuninRDMにアップロード中...');
+            try {
+                const res = await fetch('/session/rdm/upload/chushutsu', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ project_id: project.id })
+                });
+                const result = await res.json();
+                if (result.status === 'uploaded') {
+                    window.app.updateStatus('✅ GakuninRDMに保存しました: ' + result.filename);
+                    alert('GakuninRDM「' + project.title + '」に保存しました。\nファイル名: ' + result.filename);
+                } else {
+                    window.app.updateStatus('❌ アップロードに失敗しました。');
+                    alert('アップロードに失敗しました: ' + JSON.stringify(result));
+                }
+            } catch(e) {
+                window.app.updateStatus('❌ アップロードエラー。');
+                alert('エラー: ' + e.message);
+            }
+        }, 1000);
+    }
+
+    console.log('✅ Poetry Analysis Tool initialized');
+
+    console.log('   PDF.js version:', pdfjsLib.version || 'unknown');
+    console.log('   Main app instance ready');
 });
 
 // Additional event listener for selection changes
@@ -1242,3 +1838,848 @@ document.addEventListener('selectionchange', () => {
         console.log('Selection detected:', selection.toString().substring(0, 50));
     }
 });
+
+
+
+
+// ==========================================
+// 🆕 略語抽出機能（OpenAI版）
+// ==========================================
+
+class AbbreviationExtractor {
+    constructor(pdfDoc) {
+        this.pdfDoc = pdfDoc;
+        this.abbreviations = [];
+        this.apiKey = null;
+        this.useOpenAI = true;  // OpenAI を使用（後で Claude に切り替え可能）
+    }
+
+    /**
+     * メイン関数：ボタンがクリックされたらここが実行される
+     */
+    async extractAbbreviations() {
+        console.log('📍 略語抽出を開始します...');
+
+        try {
+            // Step 2: Abbreviationsページを探す
+            console.log('\n🔍 ステップ 2: Abbreviationsページを探索中...');
+            const pageNum = await this.findAbbreviationsPage();
+
+            if (!pageNum) {
+                console.warn('⚠️  Abbreviationsページが見つかりません');
+                return null;
+            }
+
+            // Step 3: ページを画像に変換
+            console.log(`\n🖼️  ステップ 3: ページ ${pageNum} を画像に変換中...`);
+            const base64Image = await this.renderPageToBase64(pageNum);
+
+            // Step 4: API で抽出（OpenAI または Claude）
+            if (this.useOpenAI) {
+                console.log('\n🤖 ステップ 4: OpenAI APIで略語を抽出中...');
+                var abbreviations = await this.extractWithOpenAI(base64Image);
+            } else {
+                console.log('\n🤖 ステップ 4: Claude APIで略語を抽出中...');
+                var abbreviations = await this.extractWithClaudeAPI(base64Image);
+            }
+
+            // Step 5: 結果を画面に表示
+            console.log('\n📺 ステップ 5: 結果を表示中...');
+            this.displayResults(abbreviations);
+
+            this.abbreviations = abbreviations;
+
+            console.log(`\n✅ 成功！ ${abbreviations.length} 個の略語を抽出しました`);
+            return abbreviations;
+
+        } catch (error) {
+            console.error('\n❌ エラーが発生しました:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * STEP 2: Abbreviationsページを見つける
+     */
+    async findAbbreviationsPage() {
+        console.log('🔍 Abbreviationsページを探中...');
+
+        const totalPages = this.pdfDoc.numPages;
+        console.log(`📄 総ページ数: ${totalPages}`);
+
+        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+            try {
+                const page = await this.pdfDoc.getPage(pageNum);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items
+                    .map(item => item.str)
+                    .join(' ');
+
+                if (/abbreviations|list of abbreviations|abbreviation list|abbr|略語/i.test(pageText)) {
+                    console.log(`✅ 見つかった！ ページ ${pageNum} に Abbreviations があります`);
+                    return pageNum;
+                }
+
+                console.log(`⏳ ページ ${pageNum} / ${totalPages} をチェック...`);
+
+            } catch (error) {
+                console.warn(`⚠️  ページ ${pageNum} でエラー:`, error.message);
+            }
+        }
+
+        console.warn('❌ Abbreviationsページが見つかりません');
+        return null;
+    }
+
+    /**
+     * STEP 3: ページを画像に変換
+     */
+    async renderPageToBase64(pageNum) {
+        console.log(`🖼️  ページ ${pageNum} を画像に変換中...`);
+
+        try {
+            const page = await this.pdfDoc.getPage(pageNum);
+            // OpenAI Vision API は高解像度推奨
+            const viewport = page.getViewport({ scale: 2.0 });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            const context = canvas.getContext('2d');
+
+            await page.render({
+                canvasContext: context,
+                viewport: viewport
+            }).promise;
+
+            const dataUrl = canvas.toDataURL('image/png');
+            const base64String = dataUrl.split(',')[1];
+
+            console.log(`✅ 変換完了！ 画像サイズ: ${base64String.length} 文字`);
+
+            return base64String;
+
+        } catch (error) {
+            console.error('❌ 画像変換エラー:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * STEP 4-1: OpenAI APIで抽出
+     * 
+     * モデル: gpt-4-turbo-with-vision または gpt-4o
+     * 料金: 1ページ約 $0.01～$0.05
+     */
+    async extractWithOpenAI(base64Image) {
+        console.log('🤖 OpenAI APIに送信中...');
+
+        const apiKey = localStorage.getItem('openaiApiKey');
+        if (!apiKey) {
+            throw new Error(
+                '❌ OpenAI APIキーが設定されていません。\n\n' +
+                'Consoleで以下を実行してください:\n' +
+                'localStorage.setItem("openaiApiKey", "sk-proj-XXXX...");'
+            );
+        }
+
+        try {
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    // gpt-4-turbo-with-vision または gpt-4o（最新で推奨）
+                    model: 'gpt-4o',
+                    max_tokens: 2000,
+                    messages: [{
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'image_url',
+                                image_url: {
+                                    url: `data:image/png;base64,${base64Image}`,
+                                    detail: 'high'  // 高品質で処理
+                                }
+                            },
+                            {
+                                type: 'text',
+                                text: `このページから全ての略語を抽出してください。
+
+JSON形式で以下のように返してください:
+[
+  {"abbr": "PL", "full": "Paradise Lost"},
+  {"abbr": "KJV", "full": "King James Version"},
+  {"abbr": "Gen.", "full": "Genesis"}
+]
+
+ルール:
+- 略語と正式名称のペアのみを返す
+- その他のテキスト、説明、Markdownは返さない
+- 有効なJSONのみを返す
+- JSONの外に何も出力しない
+- 複数の略語がある場合は全て抽出してください`
+                            }
+                        ]
+                    }],
+                    temperature: 0.2  // 低めの temperature でより一貫性のある結果
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(
+                    `OpenAI API エラー (${response.status}): ` +
+                    `${error.error?.message || JSON.stringify(error)}`
+                );
+            }
+
+            const data = await response.json();
+
+            // OpenAI の回答を取得
+            const responseText = data.choices[0].message.content;
+            console.log('OpenAI からの回答（最初の200文字）:', responseText.substring(0, 200));
+
+            // JSON をパース
+            const cleanedJson = responseText
+                .replace(/```json\n?/g, '')
+                .replace(/```\n?/g, '')
+                .trim();
+
+            const abbreviations = JSON.parse(cleanedJson);
+
+            console.log(`✅ 抽出完了！ ${abbreviations.length} 個の略語を取得`);
+            console.log('データ例:', abbreviations.slice(0, 3));
+
+            return abbreviations;
+
+        } catch (error) {
+            console.error('❌ OpenAI API エラー:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * STEP 4-2: Claude APIで抽出（後で使用可能）
+     * 
+     * 切り替え方法:
+     * this.useOpenAI = false;
+     */
+    async extractWithClaudeAPI(base64Image) {
+        console.log('🤖 Claude APIに送信中...');
+
+        const apiKey = localStorage.getItem('claudeApiKey');
+        if (!apiKey) {
+            throw new Error(
+                '❌ Claude APIキーが設定されていません。\n\n' +
+                'Consoleで以下を実行してください:\n' +
+                'localStorage.setItem("claudeApiKey", "sk-ant-XXXX...");'
+            );
+        }
+
+        try {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: 'claude-sonnet-4-20250514',
+                    max_tokens: 2000,
+                    messages: [{
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'image',
+                                source: {
+                                    type: 'base64',
+                                    media_type: 'image/png',
+                                    data: base64Image
+                                }
+                            },
+                            {
+                                type: 'text',
+                                text: `このページから全ての略語を抽出してください。
+
+JSON形式で以下のように返してください:
+[
+  {"abbr": "PL", "full": "Paradise Lost"},
+  {"abbr": "KJV", "full": "King James Version"},
+  {"abbr": "Gen.", "full": "Genesis"}
+]
+
+ルール:
+- 略語と正式名称のペアのみを返す
+- その他のテキスト、説明、Markdownは返さない
+- 有効なJSONのみを返す
+- JSONの外に何も出力しない`
+                            }
+                        ]
+                    }]
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(
+                    `Claude API エラー (${response.status}): ` +
+                    `${error.error?.message || error.message || 'Unknown error'}`
+                );
+            }
+
+            const data = await response.json();
+            const responseText = data.content[0].text;
+            console.log('Claude からの回答（最初の200文字）:', responseText.substring(0, 200));
+
+            const cleanedJson = responseText
+                .replace(/```json\n?/g, '')
+                .replace(/```\n?/g, '')
+                .trim();
+
+            const abbreviations = JSON.parse(cleanedJson);
+
+            console.log(`✅ 抽出完了！ ${abbreviations.length} 個の略語を取得`);
+            console.log('データ例:', abbreviations.slice(0, 3));
+
+            return abbreviations;
+
+        } catch (error) {
+            console.error('❌ Claude API エラー:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * STEP 5: 結果を画面に表示
+     */
+    displayResults(abbreviations) {
+        console.log('📺 結果を画面に表示...');
+
+        const resultDiv = document.getElementById('abbr-list');
+        const resultsContainer = document.getElementById('abbr-results');
+        const emptyMessage = document.getElementById('abbrEmptyMessage');
+        const spinner = document.getElementById('abbrLoadingSpinner');
+
+        if (!resultDiv) {
+            console.error('❌ abbr-list 要素が見つかりません（HTMLを確認してください）');
+            return;
+        }
+
+        if (spinner) spinner.style.display = 'none';
+
+        if (!abbreviations || abbreviations.length === 0) {
+            resultDiv.innerHTML = '<p style="color: #999; text-align: center;">No abbreviations found / 略語が見つかりません</p>';
+            if (emptyMessage) emptyMessage.style.display = 'block';
+            return;
+        }
+
+        let html = '<table style="width: 100%; border-collapse: collapse;">';
+        html += '<thead><tr style="background: #f0f0f0; border-bottom: 2px solid #ddd;">';
+        html += '<th style="padding: 10px; text-align: left; font-weight: bold;">Abbr.</th>';
+        html += '<th style="padding: 10px; text-align: left; font-weight: bold;">Full Form</th>';
+        html += '</tr></thead>';
+        html += '<tbody>';
+
+        abbreviations.forEach((item, index) => {
+            const bgColor = index % 2 === 0 ? '#ffffff' : '#f9f9f9';
+            // クリック可能な行にする
+            html += `<tr style="border-bottom: 1px solid #eee; background: ${bgColor}; cursor: pointer; transition: all 0.2s;" 
+                 onmouseover="this.style.background='#e3f2fd'" 
+                 onmouseout="this.style.background='${bgColor}'"
+                 onclick="window.app.fillSourceInfoFromAbbr('${escapeHtml(item.abbr)}', '${escapeHtml(item.full)}')">`;
+            html += `<td style="padding: 10px; font-weight: bold; color: #2196F3;">`;
+            html += escapeHtml(item.abbr || '');
+            html += '</td>';
+            html += `<td style="padding: 10px;">`;
+            html += escapeHtml(item.full || '');
+            html += '</td>';
+            html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+
+        resultDiv.innerHTML = html;
+        if (resultsContainer) resultsContainer.style.display = 'block';
+        if (emptyMessage) emptyMessage.style.display = 'none';
+
+        console.log(`✅ ${abbreviations.length} 個の略語を画面に表示しました`);
+    }
+
+    /**
+ * JSON としてダウンロード
+ */
+    downloadAsJSON() {
+        if (!this.abbreviations || this.abbreviations.length === 0) {
+            alert('No data to download');
+            return;
+        }
+
+        const data = {
+            extractedDate: new Date().toISOString(),
+            totalAbbreviations: this.abbreviations.length,
+            abbreviations: this.abbreviations
+        };
+
+        const jsonString = JSON.stringify(data, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'abbreviations.json';
+        link.click();
+        URL.revokeObjectURL(url);
+
+        console.log('✅ JSON ダウンロード完了');
+    }
+
+    /**
+     * CSV としてダウンロード
+     */
+    downloadAsCSV() {
+        if (!this.abbreviations || this.abbreviations.length === 0) {
+            alert('No data to download');
+            return;
+        }
+
+        let csv = 'Abbreviation,Full Form\n';
+
+        this.abbreviations.forEach(item => {
+            const abbr = (item.abbr || '').replace(/"/g, '""');
+            const full = (item.full || '').replace(/"/g, '""');
+            csv += `"${abbr}","${full}"\n`;
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'abbreviations.csv';
+        link.click();
+        URL.revokeObjectURL(url);
+
+        console.log('✅ CSV ダウンロード完了');
+    }
+
+    /**
+     * OpenAI APIキーを設定
+     */
+    setOpenAIKey(apiKey) {
+        if (!apiKey) {
+            throw new Error('APIキーが空です');
+        }
+
+        localStorage.setItem('openaiApiKey', apiKey);
+        this.apiKey = apiKey;
+        this.useOpenAI = true;
+        console.log('✅ OpenAI APIキーを保存しました');
+        console.log('次回から自動的に使用されます');
+    }
+
+    /**
+     * Claude APIキーを設定
+     */
+    setClaudeKey(apiKey) {
+        if (!apiKey) {
+            throw new Error('APIキーが空です');
+        }
+
+        localStorage.setItem('claudeApiKey', apiKey);
+        this.apiKey = apiKey;
+        this.useOpenAI = false;
+        console.log('✅ Claude APIキーを保存しました');
+        console.log('次回から Claude が使用されます');
+    }
+
+    /**
+     * API を切り替える
+     * @param {string} apiType - 'openai' または 'claude'
+     */
+    switchAPI(apiType) {
+        if (apiType.toLowerCase() === 'openai') {
+            this.useOpenAI = true;
+            console.log('🔄 OpenAI に切り替えました');
+        } else if (apiType.toLowerCase() === 'claude') {
+            this.useOpenAI = false;
+            console.log('🔄 Claude に切り替えました');
+        } else {
+            console.error('❌ 不正なAPI指定:', apiType);
+        }
+    }
+
+    /**
+     * APIキーを削除
+     */
+    clearApiKeys() {
+        localStorage.removeItem('openaiApiKey');
+        localStorage.removeItem('claudeApiKey');
+        console.log('✅ 全てのAPIキーを削除しました');
+    }
+}
+
+/**
+ * HTML特殊文字をエスケープ
+ */
+function escapeHtml(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// グローバルに保存
+window.abbrevExtractor = null;
+
+// ==========================================
+// 🆕 テキストペア抽出機能（OpenAI Vision版）
+// このコード全体を app.js の最後尾に貼り付けてください
+// ==========================================
+
+class TextPairExtractor {
+    constructor(pdfDoc, currentPage, scale) {
+        this.pdfDoc = pdfDoc;
+        this.currentPage = currentPage;
+        this.scale = scale;
+        this.pairs = [];
+    }
+
+    /**
+     * メイン関数：テキストペアを抽出
+     */
+    async extractTextPairs() {
+        console.log('📍 テキストペア抽出を開始します...');
+
+        try {
+            // Step 1: 現在のページをキャプチャ
+            console.log('\n📸 ステップ 1: 現在のページをキャプチャ中...');
+            const base64Image = await this.captureCurrentPage();
+
+            // Step 2: AIで分析
+            console.log('\n🤖 ステップ 2: AIで脚注とテキストを分析中...');
+            const pairs = await this.analyzePageWithAI(base64Image);
+
+            // Step 3: 結果を表示
+            console.log('\n📺 ステップ 3: 結果を表示中...');
+            this.displayResults(pairs);
+
+            this.pairs = pairs;
+
+            console.log(`\n✅ 成功！ ${pairs.length} 個のテキストペアを抽出しました`);
+            return pairs;
+
+        } catch (error) {
+            console.error('\n❌ エラーが発生しました:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * STEP 1: 現在のページをBase64に変換
+     */
+    async captureCurrentPage() {
+        console.log(`📸 ページ ${this.currentPage} をキャプチャ中...`);
+
+        try {
+            const page = await this.pdfDoc.getPage(this.currentPage);
+            const viewport = page.getViewport({ scale: this.scale });
+
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            const context = canvas.getContext('2d');
+
+            await page.render({
+                canvasContext: context,
+                viewport: viewport
+            }).promise;
+
+            const dataUrl = canvas.toDataURL('image/png');
+            const base64String = dataUrl.split(',')[1];
+
+            console.log(`✅ キャプチャ完了！ サイズ: ${base64String.length} 文字`);
+            return base64String;
+
+        } catch (error) {
+            console.error('❌ キャプチャエラー:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * STEP 2: AIでページを分析
+     * 脚注から行番号・テキスト・参考文献を抽出
+     */
+    async analyzePageWithAI(base64Image) {
+        console.log('🤖 OpenAI APIに送信中...');
+
+        const apiKey = localStorage.getItem('openaiApiKey');
+        if (!apiKey) {
+            throw new Error(
+                '❌ OpenAI APIキーが設定されていません。\n\n' +
+                'Consoleで以下を実行してください:\n' +
+                'localStorage.setItem("openaiApiKey", "sk-proj-...");'
+            );
+        }
+
+        try {
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: 'gpt-4o',
+                    max_tokens: 4000,
+                    messages: [{
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'image_url',
+                                image_url: {
+                                    url: `data:image/png;base64,${base64Image}`,
+                                    detail: 'high'
+                                }
+                            },
+                            {
+                                type: 'text',
+                                text: `IMPORTANT: Respond ONLY in English. Do NOT respond in Japanese.
+
+Analyze footnotes on this page. Extract text pairs.
+
+INSTRUCTIONS:
+1. Find all footnotes on this page
+2. For each footnote, extract:
+   - Line numbers (e.g., "17-18", "20-3")
+   - Text from page body
+   - Source citation from footnote
+
+3. Return ONLY valid JSON:
+[
+  {"lineNumbers": "17-18", "targetText": "...", "sourceText": "...", "sourceReference": "..."},
+  {"lineNumbers": "20-3", "targetText": "...", "sourceText": "...", "sourceReference": "..."}
+]
+
+RULES:
+- Return ONLY valid JSON
+- NO markdown or explanations
+- Extract text accurately from the page body, focusing on passages that discuss influence or intertextual relationships rather than simple descriptive notes.
+- Always capture any footnotes that include “Cp.” exactly as written.
+- If no footnotes: return []
+- Use "/" for line breaks
+- Do not alter abbreviations (e.g., CP, AM).
+- Expand shortened forms such as ibid. or op. cit. by identifying the referenced work from the surrounding context whenever possible.
+- If a footnote contains only a number, use the value of lineNumbers as is.
+- Extract all text pairs if multiple are present.
+
+
+If no footnotes found, respond with: []`
+                            }
+                        ]
+                    }],
+                    temperature: 0.3
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(
+                    `OpenAI API エラー (${response.status}): ` +
+                    `${error.error?.message || JSON.stringify(error)}`
+                );
+            }
+
+            const data = await response.json();
+            const responseText = data.choices[0].message.content;
+
+            console.log('OpenAI からの回答（最初の200文字）:', responseText.substring(0, 200));
+
+            // JSON をパース
+            const cleanedJson = responseText
+                .replace(/```json\n?/g, '')
+                .replace(/```\n?/g, '')
+                .trim();
+
+            const pairs = JSON.parse(cleanedJson);
+
+            console.log(`✅ 分析完了！ ${pairs.length} 個のペアを抽出`);
+            console.log('データ例:', pairs.slice(0, 2));
+
+            return pairs;
+
+        } catch (error) {
+            console.error('❌ AI分析エラー:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * STEP 3: 結果をテーブルで表示
+     */
+    displayResults(pairs) {
+        console.log('📺 結果を表示...');
+
+        const resultDiv = document.getElementById('text-pairs-list');
+        const resultsContainer = document.getElementById('text-pairs-results');
+        const spinner = document.getElementById('pairsLoadingSpinner');
+
+        if (!resultDiv) {
+            console.error('❌ text-pairs-list 要素が見つかりません（HTMLを確認）');
+            return;
+        }
+
+        if (spinner) spinner.style.display = 'none';
+
+        if (!pairs || pairs.length === 0) {
+            resultDiv.innerHTML = '<p style="color: #999; text-align: center;">テキストペアが見つかりません</p>';
+            return;
+        }
+
+        let html = '<table style="width: 100%; border-collapse: collapse; font-size: 0.9em;" class="text-pairs-table">';
+        html += '<thead><tr style="background: #f0f0f0; border-bottom: 2px solid #ddd;">';
+        html += '<th style="padding: 10px; text-align: left; font-weight: bold;">Lines</th>';
+        html += '<th style="padding: 10px; text-align: left; font-weight: bold;">Target Text</th>';
+        html += '<th style="padding: 10px; text-align: left; font-weight: bold;">Source Reference</th>';
+        html += '</tr></thead>';
+        html += '<tbody>';
+
+        pairs.forEach((pair, index) => {
+            const bgColor = index % 2 === 0 ? '#ffffff' : '#f9f9f9';
+            const targetText = pair.targetText || '';
+            const sourceText = pair.sourceText || '';
+            const sourceReference = pair.sourceReference || '';
+
+            // クリック時に渡すテキスト（エスケープは避ける）
+            const combinedSource = sourceText ?
+                (sourceText + (sourceReference ? ` (${sourceReference})` : '')) :
+                sourceReference;
+
+            // 修正: onclick 属性ではなく class と data-* 属性を使用
+            html += `<tr class="text-pair-row" 
+                     data-target-text="${escapeHtml(targetText)}" 
+                     data-source-text="${escapeHtml(combinedSource)}"
+                     style="border-bottom: 1px solid #eee; background: ${bgColor}; cursor: pointer; transition: all 0.2s;" 
+                     onmouseover="this.style.background='#e3f2fd'" 
+                     onmouseout="this.style.background='${bgColor}'">`;
+
+            html += `<td style="padding: 10px; font-weight: bold; color: #2196F3;">`;
+            html += escapeHtml(pair.lineNumbers || '');
+            html += '</td>';
+
+            html += `<td style="padding: 10px; max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">`;
+            html += escapeHtml(targetText.substring(0, 100));
+            if (targetText.length > 100) html += '...';
+            html += '</td>';
+
+            html += `<td style="padding: 10px; color: #666;">`;
+            html += escapeHtml(sourceReference.substring(0, 80));
+            if (sourceReference.length > 80) html += '...';
+            html += '</td>';
+
+            html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+
+        resultDiv.innerHTML = html;
+        if (resultsContainer) resultsContainer.style.display = 'block';
+
+        // ==========================================
+        // 🆕 イベントリスナーを追加
+        // テーブル行のクリック処理を setup
+        // ==========================================
+        this.setupTextPairClickHandler();
+
+        console.log(`✅ ${pairs.length} 個のペアを表示しました`);
+    }
+
+    /**
+     * テキストペア行のクリックハンドラーをセットアップ
+     * 修正版: data-* 属性からデータを取得
+     */
+    setupTextPairClickHandler() {
+        console.log('🔧 テキストペア行のクリックハンドラーをセットアップ中...');
+
+        const resultDiv = document.getElementById('text-pairs-list');
+        if (!resultDiv) return;
+
+        // ❌ 古い方法: 各行に onclick を設定（問題がある）
+        // ✅ 新しい方法: イベント委譲を使用（堅牢）
+
+        // 既存のリスナーを削除（重複を避けるため）
+        const tableWrapper = resultDiv;
+        const oldHandler = tableWrapper._textPairClickHandler;
+        if (oldHandler) {
+            tableWrapper.removeEventListener('click', oldHandler);
+        }
+
+        // 新しいクリックハンドラーを定義
+        const clickHandler = (event) => {
+            // クリックされたのが行（tr）か、その子要素か確認
+            const row = event.target.closest('.text-pair-row');
+
+            if (!row) return;
+
+            console.log('📍 テキストペア行がクリックされました');
+
+            // data-* 属性からテキストを取得
+            const targetText = row.getAttribute('data-target-text');
+            const sourceText = row.getAttribute('data-source-text');
+
+            console.log('📥 取得したデータ:');
+            console.log('   targetText:', targetText?.substring(0, 50) + '...');
+            console.log('   sourceText:', sourceText?.substring(0, 50) + '...');
+
+            // fillFromTextPair() を呼び出し
+            if (targetText && sourceText) {
+                if (window.app && typeof window.app.fillFromTextPair === 'function') {
+                    console.log('✅ fillFromTextPair() を呼び出し中...');
+                    window.app.fillFromTextPair(targetText, sourceText);
+                    console.log('✅ テキストが自動入力されました');
+                } else {
+                    console.error('❌ fillFromTextPair() が見つかりません');
+                    console.error('   window.app:', !!window.app);
+                    console.error('   typeof fillFromTextPair:', typeof window.app?.fillFromTextPair);
+                }
+            } else {
+                console.warn('⚠️ data-* 属性からデータを取得できません');
+                console.warn('   targetText:', targetText);
+                console.warn('   sourceText:', sourceText);
+            }
+        };
+
+        // クリックリスナーを追加
+        tableWrapper.addEventListener('click', clickHandler);
+
+        // 次回の cleanup のために保存
+        tableWrapper._textPairClickHandler = clickHandler;
+
+        console.log('✅ クリックハンドラーのセットアップ完了');
+    }
+
+}
+
+/**
+ * HTML特殊文字をエスケープ
+ * セキュリティ対策：ユーザー入力を安全に表示するため
+ */
+function escapeHtml(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// グローバルに保存
+window.textPairExtractor = null;

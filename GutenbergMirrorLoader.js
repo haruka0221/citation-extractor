@@ -1,55 +1,64 @@
 /**
- * Gutenberg Mirror Loader
- * Loads text files directly from local Gutenberg mirror
- * Supports 70,000+ works with on-demand loading
+ * Gutenberg Mirror Loader - Fixed
+ * Loads text files from CORS server
  */
 
 class GutenbergMirrorLoader {
-    constructor(mirrorBasePath = null) {
-        // Use config file if available, otherwise use provided path or default
-        this.mirrorBasePath = mirrorBasePath || 
-                             (window.GutenbergConfig && window.GutenbergConfig.mirrorBasePath) ||
-                             '/mnt/c/Users/tsuts/Documents/gutenberg_text';
+    constructor(config = {}) {
+        // 設定を取得
+        const gutenbergConfig = window.corpusConfig?.gutenberg;
+        const corpusServerUrl = window.corpusConfig?.serverUrl;
+
+        // serverUrlを設定（優先順位: config > corpusConfig.serverUrl > デフォルト）
+        this.serverUrl = config.serverUrl || 
+                         corpusServerUrl || 
+                         'http://localhost:8001';
+
+        // basePathを設定（重要！）
+        this.basePath = config.basePath !== undefined ? 
+                        config.basePath : 
+                        (gutenbergConfig?.basePath || '');
+
         this.cache = new Map();
         this.loadAttempts = new Map();
         this.maxRetries = 2;
+
+        console.log(`🔧 GutenbergMirrorLoader initialized:`);
+        console.log(`   serverUrl: ${this.serverUrl}`);
+        console.log(`   basePath: "${this.basePath}"`);
     }
 
     /**
-     * Get the file path for a PG work ID
-     * Follows Gutenberg's directory structure
-     * 
-     * Examples:
-     *   PG 20 → /0/2/20/20-0.txt or /0/2/0/20/pg20.txt
-     *   PG 1234 → /1/2/3/1234/1234-0.txt or /1/2/3/4/pg1234.txt
-     *   PG 12345 → /1/2/3/4/12345/12345-0.txt or /1/2/3/4/5/pg12345.txt
+     * Get possible paths for a PG work ID
      */
     getPossiblePaths(pgId) {
         const idStr = pgId.toString();
         const paths = [];
 
-        // Modern structure (post-2004): nested directories by digits
+        // Modern structure: nested directories by digits
         if (idStr.length >= 2) {
             const digits = idStr.split('');
-            let dirPath = digits.slice(0, -1).join('/');
-            
-            // Try with subdirectory named after work ID
-            paths.push(`${this.mirrorBasePath}/${dirPath}/${idStr}/${idStr}-0.txt`);
-            paths.push(`${this.mirrorBasePath}/${dirPath}/${idStr}/${idStr}.txt`);
-            paths.push(`${this.mirrorBasePath}/${dirPath}/${idStr}/pg${idStr}.txt`);
-            
-            // Try without subdirectory
-            paths.push(`${this.mirrorBasePath}/${dirPath}/${idStr}-0.txt`);
-            paths.push(`${this.mirrorBasePath}/${dirPath}/pg${idStr}.txt`);
+            const dirPath = digits.slice(0, -1).join('/');
+
+            const urlBase = `${this.serverUrl}${this.basePath}`;
+
+            paths.push(`${urlBase}/${dirPath}/${idStr}/${idStr}-8.txt`);
+            paths.push(`${urlBase}/${dirPath}/${idStr}/${idStr}.txt`);
+            paths.push(`${urlBase}/${dirPath}/${idStr}/${idStr}-0.txt`);
+            paths.push(`${urlBase}/${dirPath}/${idStr}/pg${idStr}.txt`);
         }
 
-        // Legacy structure (pre-2004): etextYY directories
-        // Extract year from PG ID (approximate)
-        const possibleYears = this.estimateYear(pgId);
-        for (const year of possibleYears) {
-            paths.push(`${this.mirrorBasePath}/etext${year}/${idStr}-0.txt`);
-            paths.push(`${this.mirrorBasePath}/etext${year}/pg${idStr}.txt`);
-            paths.push(`${this.mirrorBasePath}/etext${year}/${idStr}.txt`);
+        // Legacy structure for older works
+        if (parseInt(pgId) < 10000) {
+            const urlBase = `${this.serverUrl}${this.basePath}`;
+            const years = this.estimateYear(pgId);
+
+            for (const year of years) {
+                paths.push(`${urlBase}/etext${year}/${idStr}-8.txt`);
+                paths.push(`${urlBase}/etext${year}/${idStr}.txt`);
+                paths.push(`${urlBase}/etext${year}/${idStr}-0.txt`);
+                paths.push(`${urlBase}/etext${year}/pg${idStr}.txt`);
+            }
         }
 
         return paths;
@@ -57,7 +66,6 @@ class GutenbergMirrorLoader {
 
     /**
      * Estimate possible etext years based on PG ID
-     * Lower IDs = older works = earlier years
      */
     estimateYear(pgId) {
         const years = [];
@@ -77,13 +85,12 @@ class GutenbergMirrorLoader {
     }
 
     /**
-     * Load raw text from Gutenberg mirror
-     * Returns the uncleaned, original text
+     * Load raw text from Gutenberg mirror via CORS server
      */
     async loadRawText(pgId) {
         const cacheKey = `raw_${pgId}`;
-        
-        // Check memory cache
+
+        // Check cache
         if (this.cache.has(cacheKey)) {
             console.log(`✅ Cache hit for PG ${pgId}`);
             return this.cache.get(cacheKey);
@@ -95,74 +102,70 @@ class GutenbergMirrorLoader {
             throw new Error(`Max retry attempts reached for PG ${pgId}`);
         }
 
-        console.log(`📖 Loading raw text for PG ${pgId}...`);
+        console.log(`📖 Loading PG ${pgId} from CORS server...`);
         this.loadAttempts.set(pgId, attempts + 1);
 
         const possiblePaths = this.getPossiblePaths(pgId);
-        console.log(`🔍 Trying ${possiblePaths.length} possible paths for PG ${pgId}`);
+        console.log(`🔍 Trying ${possiblePaths.length} possible paths`);
 
         let lastError = null;
 
-        // Try each path sequentially
-        for (const path of possiblePaths) {
+        // Try each path
+        for (const url of possiblePaths) {
             try {
-                console.log(`  Attempting: ${path}`);
-                const response = await fetch(path);
-                
+                console.log(`  Trying: ${url}`);
+                const response = await fetch(url);
+
                 if (response.ok) {
                     const text = await response.text();
-                    
-                    // Verify it's a valid Gutenberg text
+
+                    // Validate
                     if (this.validateGutenbergText(text, pgId)) {
-                        console.log(`✅ Successfully loaded PG ${pgId} from ${path}`);
-                        console.log(`📏 File size: ${text.length} characters`);
-                        
-                        // Cache the result
+                        console.log(`✅ Loaded PG ${pgId} (${text.length} chars)`);
+
+                        // Cache
                         this.cache.set(cacheKey, text);
                         this.loadAttempts.delete(pgId);
-                        
+
                         return text;
                     } else {
-                        console.warn(`⚠️ Invalid Gutenberg format at ${path}`);
+                        console.warn(`⚠️ Invalid format at ${url}`);
                     }
                 } else {
-                    lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    console.log(`  ❌ HTTP ${response.status}`);
+                    lastError = new Error(`HTTP ${response.status}`);
                 }
             } catch (error) {
-                console.log(`  ❌ Failed: ${error.message}`);
+                console.log(`  ❌ Error: ${error.message}`);
                 lastError = error;
             }
         }
 
         // All paths failed
-        console.error(`❌ Could not load PG ${pgId} from any path`);
+        console.error(`❌ Could not load PG ${pgId}`);
         throw lastError || new Error(`File not found for PG ${pgId}`);
     }
 
     /**
-     * Validate that the loaded text is a genuine Gutenberg file
+     * Validate Gutenberg text
      */
     validateGutenbergText(text, pgId) {
-        // Check for Gutenberg markers
-        const hasStartMarker = text.includes('*** START OF') || 
-                              text.includes('***START OF') ||
-                              text.includes('*END*THE SMALL PRINT');
-        
-        const hasEndMarker = text.includes('*** END OF') ||
-                            text.includes('***END OF');
+        const hasStartMarker = text.includes('*** START OF') ||
+            text.includes('***START OF') ||
+            text.includes('*END*THE SMALL PRINT');
 
-        // Very old works might not have markers
+        const hasEndMarker = text.includes('*** END OF') ||
+            text.includes('***END OF');
+
         const isVeryOld = parseInt(pgId) < 100;
 
-        // Must have at least one marker, or be a very old work
         if (!hasStartMarker && !hasEndMarker && !isVeryOld) {
-            console.warn(`⚠️ No Gutenberg markers found for PG ${pgId}`);
+            console.warn(`⚠️ No Gutenberg markers for PG ${pgId}`);
             return false;
         }
 
-        // Check minimum length (avoid corrupted files)
         if (text.length < 100) {
-            console.warn(`⚠️ File too short for PG ${pgId}: ${text.length} chars`);
+            console.warn(`⚠️ File too short: ${text.length} chars`);
             return false;
         }
 
@@ -170,28 +173,7 @@ class GutenbergMirrorLoader {
     }
 
     /**
-     * Load multiple works in parallel
-     */
-    async loadMultipleWorks(pgIds) {
-        console.log(`📚 Loading ${pgIds.length} works in parallel...`);
-        
-        const results = await Promise.allSettled(
-            pgIds.map(pgId => this.loadRawText(pgId))
-        );
-
-        const successful = results.filter(r => r.status === 'fulfilled');
-        const failed = results.filter(r => r.status === 'rejected');
-
-        console.log(`✅ Successfully loaded: ${successful.length}/${pgIds.length}`);
-        if (failed.length > 0) {
-            console.warn(`❌ Failed to load: ${failed.length} works`);
-        }
-
-        return results;
-    }
-
-    /**
-     * Clear memory cache
+     * Clear cache
      */
     clearCache() {
         this.cache.clear();
@@ -200,7 +182,7 @@ class GutenbergMirrorLoader {
     }
 
     /**
-     * Get cache statistics
+     * Get cache stats
      */
     getCacheStats() {
         return {
@@ -209,32 +191,7 @@ class GutenbergMirrorLoader {
             failedWorks: this.loadAttempts.size
         };
     }
-
-    /**
-     * Preload common works (optional optimization)
-     */
-    async preloadCommonWorks() {
-        // Most cited works in literature
-        const commonWorks = [
-            20,    // Paradise Lost
-            26,    // Paradise Lost (alt)
-            58,    // Paradise Regained
-            100,   // Complete Works of Shakespeare
-            1342,  // Pride and Prejudice
-            2701,  // Moby Dick
-            1661,  // Sherlock Holmes
-            84,    // Frankenstein
-            98,    // A Tale of Two Cities
-            11,    // Alice in Wonderland
-        ];
-
-        console.log('🚀 Preloading commonly cited works...');
-        const results = await this.loadMultipleWorks(commonWorks);
-        
-        const loaded = results.filter(r => r.status === 'fulfilled').length;
-        console.log(`✅ Preloaded ${loaded}/${commonWorks.length} common works`);
-    }
 }
 
-// Export for use in other modules
+// Export
 window.GutenbergMirrorLoader = GutenbergMirrorLoader;

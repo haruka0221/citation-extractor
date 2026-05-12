@@ -1,0 +1,303 @@
+/* ========================================
+   Influence Rating Styles
+   評価機能用スタイル
+   ======================================== */
+
+.rating-section {
+    margin-top: 20px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
+}
+
+.rating-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.rating-header h4 {
+    margin: 0;
+    font-size: 1.1em;
+    color: #333;
+}
+
+.rating-info-btn {
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 0.9em;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.rating-info-btn:hover {
+    background: #0056b3;
+}
+
+.rating-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.rating-option {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    background: white;
+    border: 2px solid #dee2e6;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.rating-option:hover {
+    border-color: #007bff;
+    background: #f0f8ff;
+}
+
+.rating-option input[type="radio"] {
+    margin-right: 12px;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.rating-option input[type="radio"]:checked ~ .rating-label {
+    font-weight: 600;
+    color: #007bff;
+}
+
+.rating-option:has(input:checked) {
+    border-color: #007bff;
+    background: #e3f2fd;
+    box-shadow: 0 2px 4px rgba(0, 123, 255, 0.2);
+}
+
+.rating-label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+
+.rating-number {
+    font-size: 1.2em;
+    font-weight: 700;
+    color: #007bff;
+}
+
+.rating-desc {
+    font-size: 0.9em;
+    color: #666;
+}
+
+.rating-option input[type="radio"]:checked ~ .rating-label .rating-desc {
+    color: #333;
+}
+
+/* Rating Guide */
+.rating-guide {
+    margin-top: 15px;
+    padding: 15px;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.rating-guide h5 {
+    margin: 0 0 15px 0;
+    font-size: 1em;
+    color: #333;
+    border-bottom: 2px solid #007bff;
+    padding-bottom: 8px;
+}
+
+.guide-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.guide-item {
+    padding: 10px;
+    background: #f8f9fa;
+    border-left: 3px solid #007bff;
+    border-radius: 4px;
+}
+
+.guide-item strong {
+    color: #007bff;
+    font-size: 1.1em;
+}
+
+.guide-jp {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.9em;
+    color: #666;
+    font-style: italic;
+}
+
+/* Rating Validation */
+.rating-validation {
+    padding: 10px;
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 4px;
+    font-size: 0.9em;
+    font-weight: 500;
+}
+
+/* Rating Display in Saved Data */
+.rating-display {
+    padding: 8px 12px;
+    background: #1e2230;
+    color: white;
+    border-radius: 6px;
+    font-size: 0.95em;
+    font-weight: 600;
+    margin-bottom: 10px;
+    display: inline-block;
+}
+
+/* ========================================
+   Citation Search Box Styles
+   検索ボックス用スタイル
+   ======================================== */
+
+.citation-search-box {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 2px solid #e9ecef;
+}
+
+.citation-search-box label {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 0.95em;
+    color: #495057;
+}
+
+.search-input-group {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.citation-search-input {
+    flex: 1;
+    padding: 10px 15px;
+    border: 2px solid #ced4da;
+    border-radius: 6px;
+    font-size: 1em;
+    transition: all 0.2s;
+}
+
+.citation-search-input:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.search-again-btn {
+    padding: 10px 20px;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.search-again-btn:hover {
+    background: #0056b3;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+}
+
+.search-again-btn:active {
+    transform: translateY(0);
+}
+
+.search-tips {
+    font-size: 0.85em;
+    color: #6c757d;
+    font-style: italic;
+    padding: 8px 0;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .rating-section {
+        padding: 15px;
+    }
+    
+    .rating-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .rating-option {
+        padding: 10px;
+    }
+    
+    .rating-label {
+        font-size: 0.9em;
+    }
+    
+    .rating-number {
+        font-size: 1.1em;
+    }
+
+    .search-input-group {
+        flex-direction: column;
+    }
+
+    .search-again-btn {
+        width: 100%;
+    }
+}
+
+/* Animation */
+@keyframes ratingPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(0, 123, 255, 0.4);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(0, 123, 255, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(0, 123, 255, 0);
+    }
+}
+
+.rating-option:has(input:checked) {
+    animation: ratingPulse 0.6s;
+}
+
+@keyframes searchPulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(0, 123, 255, 0);
+    }
+    50% {
+        box-shadow: 0 0 0 4px rgba(0, 123, 255, 0.2);
+    }
+}
+
+.citation-search-input:focus {
+    animation: searchPulse 1.5s infinite;
+}
