@@ -37,6 +37,11 @@ class PoetryAnalysisTool {
         this.isLoading = false;
         this.selectionCount = 0; // Track alternating selections
         this.autoFillEnabled = true;
+        // ウィンドウ幅が変わったら自動で再フィット（崩れ防止）
+        window.addEventListener('resize', () => {
+            clearTimeout(this._resizeTimer);
+            this._resizeTimer = setTimeout(() => { if (this.pdfDoc) { try { this.fitWidth(); } catch(e){} } }, 250);
+        });
         this.scrollThrottle = null;
         this.renderedPages = new Set(); // Track which pages are rendered
         this.pageElements = new Map(); // Store page elements
@@ -110,6 +115,29 @@ class PoetryAnalysisTool {
                 this.loadPDF(files[0]);
             }
         });
+
+        // PDF表示エリアへのドラッグ&ドロップ（表示後も差し替え可能に）
+        const pdfViewerEl = document.getElementById('pdfViewer');
+        if (pdfViewerEl) {
+            pdfViewerEl.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                pdfViewerEl.classList.add('drag-over');
+            });
+            pdfViewerEl.addEventListener('dragleave', (e) => {
+                if (!pdfViewerEl.contains(e.relatedTarget)) {
+                    pdfViewerEl.classList.remove('drag-over');
+                }
+            });
+            pdfViewerEl.addEventListener('drop', (e) => {
+                e.preventDefault();
+                pdfViewerEl.classList.remove('drag-over');
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type === 'application/pdf') {
+                    this.metadata.fileName = files[0].name;
+                    this.loadPDF(files[0]);
+                }
+            });
+        }
 
         prevPageBtn.addEventListener('click', () => this.previousPage());
         nextPageBtn.addEventListener('click', () => this.nextPage());
@@ -210,7 +238,9 @@ class PoetryAnalysisTool {
                         window.abbrevExtractor.pdfDoc = this.pdfDoc;
                     }
 
-                    window.abbrevExtractor.useOpenAI = true;
+                    // 選択中のProviderに従う（'anthropic'ならClaudeを使う）
+                    var _prov = sessionStorage.getItem('chushutsuApiProvider') || 'openai';
+                    window.abbrevExtractor.useOpenAI = (_prov !== 'anthropic');
                     const abbreviations = await window.abbrevExtractor.extractAbbreviations();
 
                     if (abbreviations && abbreviations.length > 0) {
@@ -340,6 +370,11 @@ class PoetryAnalysisTool {
             // Initialize continuous display
             await this.initializeContinuousDisplay();
             this.updatePageControls();
+            // 開いた瞬間に枠幅へ自動フィット（PDFサイズに依存しない表示）
+            setTimeout(() => { try { this.fitWidth(); } catch(e){ console.warn('auto fitWidth skipped', e); } }, 100);
+            // PDF読み込み完了：ドロップ案内を隠す
+            const _pv = document.getElementById('pdfViewer');
+            if (_pv) _pv.classList.add('has-pdf');
             // Loading indicator will be hidden by renderVisiblePages()
             // this.hideLoading() is called there after all pages are rendered
 
@@ -976,7 +1011,7 @@ This text should be fully selectable. Try highlighting different portions to tes
             const containerWidth = pdfViewer.clientWidth - 32;
 
             this.scale = containerWidth / viewport.width;
-            await this.renderPage();
+            await this.reRenderAllPages();
             this.updatePageControls();
         } catch (error) {
             console.error('Error fitting width:', error);
@@ -1577,49 +1612,177 @@ async saveToSession(data) {
         }
     }
 
-    displayMetadata() {
-        // Show metadata panel
-        document.getElementById('metadataPanel').style.display = 'block';
+    updateMetadataSummary() {
+        const titleElement =
+            document.getElementById('metadataSummaryTitle');
+        const detailsElement =
+            document.getElementById('metadataSummaryDetails');
 
-        // Populate fields
-        document.getElementById('bookTitle').value = this.metadata.title || '';
-        document.getElementById('bookAuthor').value = this.metadata.author || '';
-        document.getElementById('bookSubject').value = this.metadata.subject || '';
+        if (!titleElement || !detailsElement) return;
 
-        // Extract year from creation date if available
-        if (this.metadata.creationDate) {
+        const title =
+            this.metadata.title &&
+            this.metadata.title.trim()
+                ? this.metadata.title.trim()
+                : 'Untitled document';
+
+        const details = [];
+
+        if (this.metadata.author &&
+            this.metadata.author.trim()) {
+            details.push(this.metadata.author.trim());
+        }
+
+        if (this.metadata.year) {
+            details.push(String(this.metadata.year));
+        }
+
+        titleElement.textContent = title;
+        detailsElement.textContent =
+            details.length
+                ? details.join(' · ')
+                : 'Author and year not detected';
+    }
+
+    setMetadataEditorOpen(open) {
+        const editor =
+            document.getElementById('metadataEditor');
+        const button =
+            document.getElementById('toggleMetadataEditor');
+
+        if (!editor || !button) return;
+
+        editor.hidden = !open;
+        button.textContent = open ? 'Close ▲' : 'Edit ▼';
+        button.setAttribute(
+            'aria-expanded',
+            open ? 'true' : 'false'
+        );
+    }
+
+    displayMetadata(preserveDetected = false) {
+        const panel =
+            document.getElementById('metadataPanel');
+
+        if (panel) {
+            panel.style.display = 'block';
+        }
+
+        /*
+         * PDFから最初に得た値を別に保存する。
+         * resetMetadata() ではこの値へ戻す。
+         */
+        if (!preserveDetected || !this.detectedMetadata) {
+            this.detectedMetadata = {
+                ...this.metadata
+            };
+        }
+
+        const titleInput =
+            document.getElementById('bookTitle');
+        const authorInput =
+            document.getElementById('bookAuthor');
+        const subjectInput =
+            document.getElementById('bookSubject');
+        const yearInput =
+            document.getElementById('bookYear');
+
+        titleInput.value = this.metadata.title || '';
+        authorInput.value = this.metadata.author || '';
+        subjectInput.value = this.metadata.subject || '';
+        yearInput.value = this.metadata.year || '';
+
+        if (!this.metadata.year &&
+            this.metadata.creationDate) {
             try {
-                const year = new Date(this.metadata.creationDate).getFullYear();
-                if (year > 1900 && year <= new Date().getFullYear()) {
-                    document.getElementById('bookYear').value = year;
+                const year =
+                    new Date(
+                        this.metadata.creationDate
+                    ).getFullYear();
+
+                if (year > 1900 &&
+                    year <= new Date().getFullYear()) {
+                    this.metadata.year = year;
+                    yearInput.value = year;
                 }
-            } catch (e) {
+            } catch (error) {
                 // Ignore date parsing errors
             }
         }
 
-        this.updateStatus('✓ PDF metadata extracted and displayed');
+        const editButton =
+            document.getElementById(
+                'toggleMetadataEditor'
+            );
+
+        if (editButton) {
+            editButton.disabled = false;
+        }
+
+        this.updateMetadataSummary();
+        this.setMetadataEditorOpen(false);
+
+        this.updateStatus(
+            '✓ PDF metadata extracted and displayed'
+        );
     }
 
     updateMetadata() {
-        // Update metadata from form fields
-        this.metadata.title = document.getElementById('bookTitle').value.trim();
-        this.metadata.author = document.getElementById('bookAuthor').value.trim();
-        this.metadata.subject = document.getElementById('bookSubject').value.trim();
+        this.metadata.title =
+            document
+                .getElementById('bookTitle')
+                .value
+                .trim();
 
-        const year = document.getElementById('bookYear').value;
+        this.metadata.author =
+            document
+                .getElementById('bookAuthor')
+                .value
+                .trim();
+
+        this.metadata.subject =
+            document
+                .getElementById('bookSubject')
+                .value
+                .trim();
+
+        const year =
+            document
+                .getElementById('bookYear')
+                .value;
+
         if (year) {
-            this.metadata.year = parseInt(year);
+            this.metadata.year = parseInt(year, 10);
+        } else {
+            delete this.metadata.year;
         }
 
-        this.updateStatus('✓ Document information updated');
-        console.log('Updated metadata:', this.metadata);
+        this.updateMetadataSummary();
+        this.setMetadataEditorOpen(false);
+
+        this.updateStatus(
+            '✓ Document information updated'
+        );
+
+        console.log(
+            'Updated metadata:',
+            this.metadata
+        );
     }
 
     resetMetadata() {
-        // Reset to original extracted values
-        this.displayMetadata();
-        this.updateStatus('Document information reset to detected values');
+        if (this.detectedMetadata) {
+            this.metadata = {
+                ...this.detectedMetadata
+            };
+        }
+
+        this.displayMetadata(true);
+        this.setMetadataEditorOpen(false);
+
+        this.updateStatus(
+            'Document information restored to detected values'
+        );
     }
 
     /**
@@ -1975,7 +2138,7 @@ class AbbreviationExtractor {
     async extractWithOpenAI(base64Image) {
         console.log('🤖 OpenAI APIに送信中...');
 
-        const apiKey = localStorage.getItem('openaiApiKey');
+        const apiKey = sessionStorage.getItem('openaiApiKey');
         if (!apiKey) {
             throw new Error(
                 '❌ OpenAI APIキーが設定されていません。\n\n' +
@@ -2071,12 +2234,11 @@ JSON形式で以下のように返してください:
     async extractWithClaudeAPI(base64Image) {
         console.log('🤖 Claude APIに送信中...');
 
-        const apiKey = localStorage.getItem('claudeApiKey');
+        const apiKey = sessionStorage.getItem('claudeApiKey');
         if (!apiKey) {
             throw new Error(
                 '❌ Claude APIキーが設定されていません。\n\n' +
-                'Consoleで以下を実行してください:\n' +
-                'localStorage.setItem("claudeApiKey", "sk-ant-XXXX...");'
+                '右欄の AI Settings で Anthropic APIキーを設定してください。'
             );
         }
 
@@ -2086,10 +2248,11 @@ JSON形式で以下のように返してください:
                 headers: {
                     'Content-Type': 'application/json',
                     'x-api-key': apiKey,
+                    'anthropic-dangerous-direct-browser-access': 'true',
                     'anthropic-version': '2023-06-01'
                 },
                 body: JSON.stringify({
-                    model: 'claude-sonnet-4-20250514',
+                    model: 'claude-sonnet-4-5',
                     max_tokens: 2000,
                     messages: [{
                         role: 'user',
@@ -2273,11 +2436,11 @@ JSON形式で以下のように返してください:
             throw new Error('APIキーが空です');
         }
 
-        localStorage.setItem('openaiApiKey', apiKey);
+        sessionStorage.setItem('openaiApiKey', apiKey);
         this.apiKey = apiKey;
         this.useOpenAI = true;
         console.log('✅ OpenAI APIキーを保存しました');
-        console.log('次回から自動的に使用されます');
+        console.log('このブラウザタブで使用します');
     }
 
     /**
@@ -2288,7 +2451,7 @@ JSON形式で以下のように返してください:
             throw new Error('APIキーが空です');
         }
 
-        localStorage.setItem('claudeApiKey', apiKey);
+        sessionStorage.setItem('claudeApiKey', apiKey);
         this.apiKey = apiKey;
         this.useOpenAI = false;
         console.log('✅ Claude APIキーを保存しました');
@@ -2315,8 +2478,8 @@ JSON形式で以下のように返してください:
      * APIキーを削除
      */
     clearApiKeys() {
-        localStorage.removeItem('openaiApiKey');
-        localStorage.removeItem('claudeApiKey');
+        sessionStorage.removeItem('openaiApiKey');
+        sessionStorage.removeItem('claudeApiKey');
         console.log('✅ 全てのAPIキーを削除しました');
     }
 }
@@ -2414,13 +2577,129 @@ class TextPairExtractor {
     }
 
     /**
+     * STEP 2 (Claude版): AIでページを分析
+     * 脚注から行番号・テキスト・参考文献を抽出
+     */
+    async analyzePageWithClaude(base64Image) {
+        console.log('\u{1F916} Claude APIに送信中...');
+
+        const apiKey = sessionStorage.getItem('claudeApiKey');
+        if (!apiKey) {
+            throw new Error(
+                '\u274C Claude APIキーが設定されていません。\n\n' +
+                '右欄の AI Settings で Anthropic APIキーを設定してください。'
+            );
+        }
+
+        const promptText = [
+            'IMPORTANT: Respond ONLY in English. Do NOT respond in Japanese.',
+            '',
+            'Analyze footnotes on this page. Extract text pairs.',
+            '',
+            'INSTRUCTIONS:',
+            '1. Find all footnotes on this page',
+            '2. For each footnote, extract:',
+            '   - Line numbers (e.g., "17-18", "20-3")',
+            '   - Text from page body',
+            '   - Source citation from footnote',
+            '',
+            '3. Return ONLY valid JSON:',
+            '[',
+            '  {"lineNumbers": "17-18", "targetText": "...", "sourceText": "...", "sourceReference": "..."},',
+            '  {"lineNumbers": "20-3", "targetText": "...", "sourceText": "...", "sourceReference": "..."}',
+            ']',
+            '',
+            'RULES:',
+            '- Return ONLY valid JSON',
+            '- NO markdown or explanations',
+            '- Extract text accurately from the page body, focusing on passages that discuss influence or intertextual relationships rather than simple descriptive notes.',
+            '- Always capture any footnotes that include "Cp." exactly as written.',
+            '- If no footnotes: return []',
+            '- Use "/" for line breaks',
+            '- Do not alter abbreviations (e.g., CP, AM).',
+            '- Expand shortened forms such as ibid. or op. cit. by identifying the referenced work from the surrounding context whenever possible.',
+            '- If a footnote contains only a number, use the value of lineNumbers as is.',
+            '- Extract all text pairs if multiple are present.',
+            '',
+            'If no footnotes found, respond with: []'
+        ].join('\n');
+
+        try {
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-dangerous-direct-browser-access': 'true',
+                    'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                    model: 'claude-sonnet-4-5',
+                    max_tokens: 4000,
+                    messages: [{
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'image',
+                                source: {
+                                    type: 'base64',
+                                    media_type: 'image/png',
+                                    data: base64Image
+                                }
+                            },
+                            {
+                                type: 'text',
+                                text: promptText
+                            }
+                        ]
+                    }]
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(
+                    'Claude API エラー (' + response.status + '): ' +
+                    (error.error?.message || error.message || 'Unknown error')
+                );
+            }
+
+            const data = await response.json();
+            const responseText = data.content[0].text;
+            console.log('Claude からの回答（最初の200文字）:', responseText.substring(0, 200));
+
+            const cleanedJson = responseText
+                .replace(/```json\n?/g, '')
+                .replace(/```\n?/g, '')
+                .trim();
+
+            const pairs = JSON.parse(cleanedJson);
+
+            console.log('\u2705 分析完了！ ' + pairs.length + ' 個のペアを抽出');
+            console.log('データ例:', pairs.slice(0, 2));
+
+            return pairs;
+
+        } catch (error) {
+            console.error('\u274C Claude API エラー:', error);
+            throw error;
+        }
+    }
+
+    /**
      * STEP 2: AIでページを分析
      * 脚注から行番号・テキスト・参考文献を抽出
      */
     async analyzePageWithAI(base64Image) {
+        // 選択中のProviderに従って振り分け
+        const _provider = sessionStorage.getItem('chushutsuApiProvider') || 'openai';
+        if (_provider === 'anthropic') {
+            return await this.analyzePageWithClaude(base64Image);
+        }
+
         console.log('🤖 OpenAI APIに送信中...');
 
-        const apiKey = localStorage.getItem('openaiApiKey');
+        const apiKey = sessionStorage.getItem('openaiApiKey');
         if (!apiKey) {
             throw new Error(
                 '❌ OpenAI APIキーが設定されていません。\n\n' +

@@ -955,7 +955,8 @@ body {
 }
 
 /* Source Type Tabs */
-.source-type-tabs {
+.source-type-tabs { display: none !important; }
+.source-type-tabs-DISABLED {
     display: flex;
     gap: 0.5rem;
     margin-bottom: 1.5rem;
@@ -1393,3 +1394,581 @@ body {
 }
 
 
+
+
+/* ===== AI SETTINGS AND COMPACT DOCUMENT PANEL ===== */
+
+.ai-settings-panel,
+.compact-document-panel {
+    background: #ffffff;
+    border: 1px solid #dfe5ee;
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 3px 12px rgba(30, 50, 80, 0.07);
+}
+
+.compact-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.compact-panel-header h3 {
+    margin: 0;
+    color: #273449;
+    font-size: 1.15rem;
+}
+
+.compact-panel-description {
+    margin: 3px 0 0;
+    color: #7a8799;
+    font-size: 0.78rem;
+}
+
+.settings-badge {
+    flex: none;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.settings-badge.is-unset {
+    background: #f1f3f6;
+    color: #667085;
+}
+
+.settings-badge.is-ready {
+    background: #e7f8ee;
+    color: #16864b;
+}
+
+.ai-settings-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+}
+
+.compact-input-group {
+    margin-bottom: 0 !important;
+}
+
+.compact-input-group label {
+    display: block;
+    margin-bottom: 5px;
+    color: #46556d;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.compact-input-group select,
+.compact-input-group input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.api-key-input-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+}
+
+.api-key-input-row input {
+    min-width: 0;
+}
+
+.api-key-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 9px;
+}
+
+.api-key-primary-button,
+.api-key-secondary-button,
+.document-edit-button {
+    border-radius: 7px;
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.api-key-primary-button {
+    border: 0;
+    background: #2563eb;
+    color: #ffffff;
+    padding: 9px 13px;
+}
+
+.api-key-secondary-button,
+.document-edit-button {
+    border: 1px solid #cfd7e3;
+    background: #f8fafc;
+    color: #46556d;
+    padding: 8px 12px;
+}
+
+.document-edit-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.api-key-message {
+    min-height: 18px;
+    color: #78869a;
+    font-size: 0.75rem;
+    line-height: 1.45;
+}
+
+.api-key-message.is-success {
+    color: #16864b;
+}
+
+.api-key-message.is-error {
+    color: #c53636;
+}
+
+.document-summary {
+    padding: 11px 12px;
+    background: #f7f9fc;
+    border: 1px solid #e3e8f0;
+    border-radius: 8px;
+}
+
+.document-summary-title {
+    color: #273449;
+    font-size: 0.94rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.document-summary-details {
+    margin-top: 4px;
+    color: #758196;
+    font-size: 0.78rem;
+    overflow-wrap: anywhere;
+}
+
+#metadataEditor {
+    margin-top: 15px;
+}
+
+#metadataEditor[hidden] {
+    display: none !important;
+}
+
+@media (max-width: 720px) {
+    .api-key-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .api-key-secondary-button {
+        width: 100%;
+    }
+}
+
+
+/* ===== COLLAPSIBLE SIDE PANELS ===== */
+
+.panel-toggle-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 7px;
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    color: #46556d;
+    cursor: pointer;
+    font: inherit;
+}
+
+.panel-toggle-button:hover .settings-badge {
+    filter: brightness(0.97);
+}
+
+.panel-toggle-button:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 4px;
+    border-radius: 6px;
+}
+
+.panel-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 14px;
+    color: #667085;
+    font-size: 0.74rem;
+    line-height: 1;
+}
+
+#aiSettingsBody[hidden] {
+    display: none !important;
+}
+
+.ai-settings-panel.is-collapsed {
+    padding-top: 15px;
+    padding-bottom: 15px;
+}
+
+.ai-settings-panel.is-collapsed .compact-panel-header {
+    margin-bottom: 0;
+}
+
+.document-edit-button {
+    min-width: 72px;
+    white-space: nowrap;
+}
+
+/* ===== COMPACT RIGHT PANEL V2 START ===== */
+
+/*
+ * AI・Document・Text Selectionを同じカード形式に統一
+ */
+.data-panel > .ai-settings-panel,
+.data-panel > .compact-document-panel,
+.data-panel > .selection-inputs {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    margin: 0 0 12px 0 !important;
+    padding: 14px 16px !important;
+
+    background: #ffffff !important;
+    border: 1px solid #dfe5ee !important;
+    border-left: 4px solid #2563eb !important;
+    border-radius: 12px !important;
+
+    box-shadow:
+        0 3px 12px rgba(30, 50, 80, 0.07) !important;
+}
+
+/* 見出し部分 */
+.compact-panel-header,
+.selection-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 10px !important;
+    margin: 0 0 9px 0 !important;
+}
+
+.compact-panel-header h3,
+.selection-header h3 {
+    margin: 0 !important;
+    color: #273449 !important;
+    font-size: 18px !important;
+    line-height: 1.25 !important;
+}
+
+/* 補助見出しは縦幅節約のため非表示 */
+.compact-panel-description {
+    display: none !important;
+}
+
+/* 開閉ボタン */
+.panel-toggle-button {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 6px !important;
+
+    margin: 0 !important;
+    padding: 2px 0 !important;
+
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+
+    color: #46556d !important;
+    font: inherit !important;
+    cursor: pointer !important;
+}
+
+.panel-toggle-button:focus-visible {
+    outline: 2px solid #2563eb !important;
+    outline-offset: 3px !important;
+    border-radius: 5px !important;
+}
+
+.settings-badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    min-height: 24px !important;
+
+    padding: 2px 9px !important;
+    border-radius: 999px !important;
+
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+}
+
+.settings-badge.is-unset {
+    background: #f1f3f6 !important;
+    color: #667085 !important;
+}
+
+.settings-badge.is-ready {
+    background: #e7f8ee !important;
+    color: #16864b !important;
+}
+
+.panel-chevron {
+    color: #667085 !important;
+    font-size: 11px !important;
+}
+
+/* 開閉される領域 */
+#aiSettingsBody[hidden],
+#metadataEditor[hidden] {
+    display: none !important;
+}
+
+.ai-settings-panel.is-collapsed {
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+}
+
+.ai-settings-panel.is-collapsed .compact-panel-header {
+    margin-bottom: 0 !important;
+}
+
+/* AI設定の縦間隔 */
+#aiSettingsBody {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+}
+
+#aiSettingsBody .input-group {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+#aiSettingsBody label,
+#metadataEditor label {
+    display: block !important;
+    margin: 0 0 4px 0 !important;
+
+    color: #46556d !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    line-height: 1.25 !important;
+}
+
+/* AI欄とDocument欄の入力フォーム */
+#aiSettingsPanel input,
+#aiSettingsPanel select,
+#metadataEditor input {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    height: 36px !important;
+
+    margin: 0 !important;
+    padding: 6px 9px !important;
+
+    border: 1px solid #cfd7e3 !important;
+    border-radius: 6px !important;
+    background: #ffffff !important;
+
+    color: #273449 !important;
+    font-size: 14px !important;
+    line-height: 1.2 !important;
+}
+
+#aiSettingsPanel input:focus,
+#aiSettingsPanel select:focus,
+#metadataEditor input:focus {
+    border-color: #2563eb !important;
+    outline: 2px solid rgba(37, 99, 235, 0.14) !important;
+    outline-offset: 0 !important;
+}
+
+/* APIキー入力＋Show */
+.api-key-input-row {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 7px !important;
+    align-items: stretch !important;
+}
+
+.api-key-input-row input {
+    min-width: 0 !important;
+}
+
+/* APIキー操作ボタン */
+.api-key-actions {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 8px !important;
+    margin: 1px 0 0 0 !important;
+}
+
+.api-key-primary-button,
+.api-key-secondary-button,
+.document-edit-button {
+    box-sizing: border-box !important;
+    min-height: 34px !important;
+
+    margin: 0 !important;
+    padding: 6px 11px !important;
+
+    border-radius: 6px !important;
+    cursor: pointer !important;
+
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    line-height: 1.2 !important;
+}
+
+.api-key-primary-button {
+    border: 1px solid #2563eb !important;
+    background: #2563eb !important;
+    color: #ffffff !important;
+}
+
+.api-key-secondary-button,
+.document-edit-button {
+    border: 1px solid #cfd7e3 !important;
+    background: #f7f9fc !important;
+    color: #46556d !important;
+}
+
+.document-edit-button {
+    min-width: 76px !important;
+    white-space: nowrap !important;
+}
+
+.document-edit-button:disabled {
+    opacity: 0.45 !important;
+    cursor: not-allowed !important;
+}
+
+/* APIキー説明文 */
+.api-key-message {
+    min-height: 0 !important;
+    margin: 0 !important;
+
+    color: #78869a !important;
+    font-size: 12px !important;
+    line-height: 1.4 !important;
+}
+
+.api-key-message.is-success {
+    color: #16864b !important;
+}
+
+.api-key-message.is-error {
+    color: #c53636 !important;
+}
+
+/* Document要約 */
+.document-summary {
+    margin: 0 !important;
+    padding: 0 !important;
+
+    border: 0 !important;
+    background: transparent !important;
+}
+
+.document-summary-title {
+    margin: 0 !important;
+
+    color: #273449 !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    line-height: 1.4 !important;
+
+    overflow-wrap: anywhere !important;
+}
+
+.document-summary-details {
+    margin: 2px 0 0 0 !important;
+
+    color: #758196 !important;
+    font-size: 13px !important;
+    line-height: 1.35 !important;
+
+    overflow-wrap: anywhere !important;
+}
+
+/* Document編集フォーム */
+#metadataEditor {
+    margin: 10px 0 0 0 !important;
+    padding: 11px 0 0 0 !important;
+    border-top: 1px solid #e3e8f0 !important;
+}
+
+#metadataEditor .input-group {
+    display: block !important;
+    margin: 0 0 9px 0 !important;
+    padding: 0 !important;
+}
+
+#metadataEditor .metadata-actions,
+.metadata-actions {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    gap: 8px !important;
+
+    margin: 10px 0 0 0 !important;
+    padding: 0 !important;
+}
+
+#metadataEditor .metadata-actions button {
+    min-height: 36px !important;
+    margin: 0 !important;
+    padding: 6px 10px !important;
+
+    border-radius: 6px !important;
+
+    font-size: 13px !important;
+    line-height: 1.2 !important;
+}
+
+/* Text Selection内の不要な大きな間隔も少し削減 */
+.data-panel > .selection-inputs .input-group {
+    margin-bottom: 12px !important;
+}
+
+@media (max-width: 720px) {
+    .api-key-actions,
+    #metadataEditor .metadata-actions {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* ===== COMPACT RIGHT PANEL V2 END ===== */
+
+/* === PDFドラッグ&ドロップ案内 === */
+#pdfViewer { position: relative; }
+.pdf-drop-hint {
+    position: absolute;
+    inset: 16px;
+    border: 2.5px dashed #b8c4d0;
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #8a97a5;
+    background: rgba(248,250,252,0.6);
+    pointer-events: none;
+    text-align: center;
+    padding: 20px;
+    z-index: 1;
+}
+.pdf-drop-hint .dnd-icon { font-size: 2.6rem; line-height: 1; }
+.pdf-drop-hint .dnd-main { font-size: 1rem; font-weight: 600; color: #6b7885; }
+.pdf-drop-hint .dnd-sub  { font-size: 0.82rem; color: #9aa6b2; }
+#pdfViewer.drag-over .pdf-drop-hint {
+    border-color: #5b8fd1;
+    background: rgba(219,233,248,0.7);
+    color: #2f5a8a;
+}
+#pdfViewer.has-pdf .pdf-drop-hint { display: none; }

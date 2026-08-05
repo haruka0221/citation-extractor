@@ -151,6 +151,29 @@ class BibleProvider {
         return verses;
     }
 
+    // ─── public: 書全体を取得 ────────────────────────────
+    getAllVerses(bookCode, versionId = null) {
+        if (!this.initialized) throw new Error('BibleProvider not initialized');
+        const vId = versionId || Object.keys(this.versions)[0];
+        const version = this.versions[vId];
+        if (!version) throw new Error(`Version not found: ${vId}`);
+        const prefix = bookCode.toUpperCase() + ' ';
+        // versionIdが指定されているがtextが空の場合はデフォルト版にフォールバック
+        const defaultVersion = this.versions[Object.keys(this.versions)[0]];
+        const verses = [];
+        for (let i = 0; i < this.vref.length; i++) {
+            if (this.vref[i].startsWith(prefix)) {
+                const text = version.lines[i] || '';
+                // テキストが空の場合はデフォルト版を使う
+                const finalText = text.trim() ? text : (defaultVersion.lines[i] || '');
+                verses.push({
+                    ref: this.vref[i],
+                    text: finalText
+                });
+            }
+        }
+        return verses;
+    }
     // ─── public: 書コード一覧 ────────────────────────────
     getAvailableBooks() {
         return Object.keys(this.bookIndex);

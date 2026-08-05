@@ -1,6 +1,16 @@
 /**
- * Citation Integration Module
- * Handles the workflow from footnote selection to source passage retrieval
+ * Citation Integration Module - 完璧版
+ * ローカル環境と本番環境の両方に対応
+ * 
+ * ✅ FIXES:
+ * - corpus-config.js の設定を活用
+ * - ローカル環境: /catalog/unified_catalog.csv
+ * - 本番環境: /texts/unified_catalog.csv
+ * - Find Sources ボタンを正しく検出
+ * - selectCandidate を async に変更
+ * - showFullTextViewer を await で待つ
+ * - モーダル制御を正しく実装
+ * ✅ NEW: 青空文庫対応 (aozora:作者ID/作品ID パターン)
  */
 
 class CitationIntegration {
@@ -8,1522 +18,834 @@ class CitationIntegration {
         this.selectedCandidate = null;
         this.currentCandidates = [];
         this.currentSourceType = 'all';
+        this.currentSearchTerm = '';
         this.catalog = null;
         this.dynamicCatalog = null;
         this.csvCatalog = null;
         this.fullTextViewer = null;
         this.bibleProvider = null;
 
+        this.unifiedCatalog = null;
+        this.catalogIndex = {};
+        this.apiBaseUrl = '';
+
         this.initializeEventListeners();
         this.initializeCitationEngine();
+        this.loadUnifiedCatalog();
     }
 
-    /**
-     * Initialize the citation extraction engine
-     */
     async initializeCitationEngine() {
         try {
-            console.log('🚀 Initializing scalable citation engine...');
+            console.log('🚀 Initializing citation engine...');
 
-            // Initialize the CSV catalog system (preferred)
-            if (window.CSVCatalogSystem && window.initializeCSVCatalogSystem) {
-                this.csvCatalog = await window.initializeCSVCatalogSystem();
-                console.log('✅ CSV catalog system initialized successfully');
+            this.apiBaseUrl = window.location.origin;
+            console.log(`📡 API base URL: ${this.apiBaseUrl}`);
 
-                const stats = this.csvCatalog.getCatalogStats();
-                console.log('📊 CSV catalog stats:', stats);
-            } else if (window.DynamicWorkCatalog) {
-                console.log('⚠️ Using fallback DynamicWorkCatalog');
-                this.dynamicCatalog = new window.DynamicWorkCatalog();
-                await this.dynamicCatalog.initialize();
-                console.log('✅ Dynamic work catalog initialized successfully');
-
-                const stats = this.dynamicCatalog.getCatalogStats();
-                console.log('📊 Dynamic catalog stats:', stats);
-            } else if (window.CitationCatalog) {
-                console.log('⚠️ Using fallback CitationCatalog');
-                this.catalog = new window.CitationCatalog();
-                await this.catalog.initialize();
-                console.log('✅ Citation catalog initialized successfully');
-
-                const stats = this.catalog.getCatalogStats();
-                console.log('📊 Catalog stats:', stats);
-            } else {
-                console.warn('⚠️ No catalog system available, using legacy methods');
-            }
-
-            // Initialize Bible provider
             if (window.BibleProvider) {
                 this.bibleProvider = new window.BibleProvider();
                 try {
-                    await this.bibleProvider.initialize(window.bibleConfig);
-                    console.log('✅ Bible provider initialized successfully');
+                    await this.bibleProvider.initialize();
+                    console.log('✅ Bible provider initialized');
                 } catch (error) {
-                    console.warn('⚠️ Bible provider initialization failed:', error);
+                    console.warn('⚠️ Bible provider initialization failed:', error.message);
                 }
-            } else {
-                console.warn('⚠️ BibleProvider not available');
             }
 
-            // Initialize full-text viewer
             if (window.FullTextViewer) {
                 this.fullTextViewer = new window.FullTextViewer();
                 console.log('✅ Full-text viewer initialized');
-            } else {
-                console.warn('⚠️ FullTextViewer not available');
             }
 
-            // Wait for main app to be available
-            this.waitForMainApp();
+            if (window.mainApp) {
+                console.log('Main app instance found and ready');
+            }
+
         } catch (error) {
-            console.error('❌ Failed to initialize citation engine:', error);
+            console.error('❌ Error initializing citation engine:', error);
         }
     }
 
-    /**
-     * Wait for main app to be available
-     */
-    waitForMainApp() {
-        const checkApp = () => {
-            if (window.poetryApp) {
-                console.log('Main app instance found and ready');
+    async loadUnifiedCatalog() {
+        try {
+            console.log('📚 Loading unified catalog...');
+
+            const CACHE_KEY = 'unified_catalog_v1';
+            const cached = localStorage.getItem(CACHE_KEY);
+            if (cached) {
+                console.log('📦 Using cached catalog');
+                this.unifiedCatalog = JSON.parse(cached);
+                console.log(`✅ Loaded ${this.unifiedCatalog.length} works from cache`);
                 return;
             }
 
-            console.log('Waiting for main app to initialize...');
-            setTimeout(checkApp, 100);
-        };
+            const config = window.corpusConfig || {};
 
-        checkApp();
+            if (!config.catalog?.enabled) {
+                console.warn('⚠️ Catalog is disabled in corpus-config');
+                this.unifiedCatalog = [];
+                return;
+            }
+
+            const catalogPath = config.catalog?.path;
+            console.log(`📁 Catalog path from config: ${catalogPath}`);
+
+            if (!catalogPath) {
+                console.warn('⚠️ Catalog path is not defined');
+                this.unifiedCatalog = [];
+                return;
+            }
+
+            let response;
+            try {
+                console.log(`📡 Fetching from: ${catalogPath}`);
+                response = await fetch(catalogPath);
+            } catch (error) {
+                console.warn(`⚠️ Failed with ${catalogPath}, trying alternate path...`);
+                try {
+                    response = await fetch('/texts/unified_catalog.csv');
+                } catch (error2) {
+                    try {
+                        response = await fetch('/catalog/unified_catalog.csv');
+                    } catch (error3) {
+                        console.error('❌ All catalog paths failed');
+                        this.unifiedCatalog = [];
+                        return;
+                    }
+                }
+            }
+
+            if (!response || !response.ok) {
+                console.error(`❌ HTTP error: ${response?.status} ${response?.statusText}`);
+                this.unifiedCatalog = [];
+                return;
+            }
+
+            const csvText = await response.text();
+
+            if (!csvText || csvText.length === 0) {
+                console.error('❌ Catalog file is empty or could not be read');
+                this.unifiedCatalog = [];
+                return;
+            }
+
+            console.log(`📄 Catalog file size: ${csvText.length} bytes`);
+
+            const lines = csvText.trim().split('\n');
+            console.log(`📋 Total lines: ${lines.length}`);
+
+            if (lines.length < 2) {
+                console.warn('⚠️ Catalog has no data (only header or empty)');
+                this.unifiedCatalog = [];
+                return;
+            }
+
+            this.unifiedCatalog = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+
+                const parts = this.parseCSVLine(line);
+
+                const textNum = parts[0];
+                const type = parts[1];
+                const issued = parts[2];
+                const title = parts[3];
+                const language = parts[4];
+                const authors = parts[5];
+                const source = parts[11] || 'gutenberg';
+
+                if (textNum) {
+                    const work = {
+                        id: parseInt(textNum) || textNum,
+                        pgId: parseInt(textNum) || textNum,
+                        title: title || '',
+                        authors: authors || 'Unknown',
+                        subjects: parts[6] || '',   // 青空文庫の場合はauthor_id
+                        bookCode: parts[9] || '',    // 聖書の場合は書コード（GEN, MATなど）
+                        source: source.toLowerCase(),
+                        type: type || 'literature'
+                    };
+
+                    this.unifiedCatalog.push(work);
+                    this.catalogIndex[parseInt(textNum)] = work;
+                }
+
+            }
+
+            console.log(`✅ Loaded ${this.unifiedCatalog.length} works from unified catalog`);
+            console.log('ℹ️ Catalog caching skipped (too large for localStorage)');
+
+        } catch (error) {
+            console.error('❌ Error loading catalog:', error);
+            this.unifiedCatalog = [];
+        }
     }
 
-    /**
-     * Set up event listeners for the citation integration
-     */
     initializeEventListeners() {
-        // Find Sources button
-        const findSourcesBtn = document.getElementById('findSourcesBtn');
-        if (findSourcesBtn) {
-            findSourcesBtn.addEventListener('click', () => this.handleFindSources());
-        }
+        const findSourcesSelectors = [
+            '#findSourcesBtn',
+            '#findSourcesButton',
+            'button[id*="findSource"]'
+        ];
 
-        // Source info textarea - show/hide Find Sources button
-        const sourceInfo = document.getElementById('sourceInfo');
-        if (sourceInfo) {
-            sourceInfo.addEventListener('input', () => this.handleSourceInfoChange());
-        }
-
-        // Modal controls
-        this.setupModalEventListeners();
-        this.setupTabEventListeners();
-    }
-
-    /**
-     * Handle changes to the source info textarea
-     */
-    handleSourceInfoChange() {
-        const sourceInfo = document.getElementById('sourceInfo');
-        const citationControls = document.getElementById('citationControls');
-        const findSourcesBtn = document.getElementById('findSourcesBtn');
-
-        if (sourceInfo && citationControls && findSourcesBtn) {
-            const hasText = sourceInfo.value.trim().length > 0;
-
-            if (hasText) {
-                citationControls.style.display = 'flex';
-                findSourcesBtn.disabled = false;
-            } else {
-                citationControls.style.display = 'none';
-                findSourcesBtn.disabled = true;
+        let findSourcesButton = null;
+        for (const selector of findSourcesSelectors) {
+            findSourcesButton = document.querySelector(selector);
+            if (findSourcesButton) {
+                console.log(`✅ Found Find Sources button: ${selector}`);
+                break;
             }
         }
+
+        if (findSourcesButton) {
+            findSourcesButton.style.display = 'block';
+            findSourcesButton.addEventListener('click', () => {
+                console.log('🔍 Find Sources clicked');
+                this.findSources();
+            });
+        } else {
+            console.warn('⚠️ Find Sources button not found in DOM');
+        }
+
+        const closeCitationModal = document.getElementById('closeCitationModal');
+        if (closeCitationModal) {
+            closeCitationModal.addEventListener('click', () => this.closeAllModals());
+        }
+
+        const cancelCitationLookup = document.getElementById('cancelCitationLookup');
+        if (cancelCitationLookup) {
+            cancelCitationLookup.addEventListener('click', () => this.closeAllModals());
+        }
+
+        const searchAgainBtn = document.getElementById('searchAgainBtn');
+        const citationSearchInput = document.getElementById('citationSearchInput');
+        if (searchAgainBtn && citationSearchInput) {
+            const doModalSearch = async () => {
+                const term = citationSearchInput.value.trim();
+                if (!term) return;
+                this.currentSearchTerm = term;
+                const loadingEl = document.getElementById('loadingCandidates');
+                const candidatesContainer = document.getElementById('candidatesContainer');
+                if (loadingEl) loadingEl.style.display = 'flex';
+                const candidates = await this.performCitationLookup(term);
+                if (loadingEl) loadingEl.style.display = 'none';
+                this.currentCandidates = candidates;
+                this.displayCitationModal(candidates);
+                const citationModal = document.getElementById('citationModal');
+                if (citationModal) citationModal.style.display = 'block';
+            };
+            searchAgainBtn.addEventListener('click', doModalSearch);
+            citationSearchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') doModalSearch();
+            });
+        }
+
+        const cancelFullTextViewer = document.getElementById('cancelFullTextViewer');
+        if (cancelFullTextViewer) {
+            cancelFullTextViewer.addEventListener('click', () => this.closeAllModals());
+        }
+
+        const confirmSelection = document.getElementById('confirm-selection');
+        if (confirmSelection) {
+            confirmSelection.addEventListener('click', () => this.confirmSelection());
+        }
+
+        const closeConfirmationModal = document.getElementById('closeConfirmationModal');
+        if (closeConfirmationModal) {
+            closeConfirmationModal.addEventListener('click', () => this.closeAllModals());
+        }
     }
 
-    /**
-     * Handle Find Sources button click
-     */
-    async handleFindSources() {
-        console.log('🔍 STEP 1: Find Sources clicked');
+    async findSources() {
+        const sourceTextField = document.getElementById('sourceInfo');
+        let selectedText = '';
 
-        const sourceInfo = document.getElementById('sourceInfo');
-        const citationText = sourceInfo.value.trim();
+        if (sourceTextField && sourceTextField.value.trim()) {
+            selectedText = sourceTextField.value.trim();
+        }
 
-        console.log('Selected text:', citationText);
-        console.log('Selected text length:', citationText.length);
-        console.log('Selected text type:', typeof citationText);
+        if (!selectedText) {
+            selectedText = window.getSelection().toString().trim();
+        }
 
-        if (!citationText) {
-            console.log('❌ No citation text provided');
-            this.showCitationStatus('Please enter citation text first', 'error');
+        if (!selectedText) {
+            alert('Please enter a citation in "Source Text" field or select text from PDF');
             return;
         }
 
+        console.log('🔍 Find Sources clicked, text:', selectedText);
+        this.currentSearchTerm = selectedText;
+
         try {
-            console.log('🔧 STEP 2: Starting citation lookup process');
-            this.showCitationStatus('Searching for sources...', 'loading');
-
-            const candidates = await this.performCitationLookup(citationText);
-
-            console.log('📊 STEP 3: Citation lookup completed');
-            console.log('Candidates found:', candidates ? candidates.length : 0);
-            console.log('Candidates data:', candidates);
-
-            if (candidates && candidates.length > 0) {
-                this.showCitationStatus(`Found ${candidates.length} source(s)`, 'success');
-                this.displayCandidatesModal(citationText, candidates);
-            } else {
-                this.showCitationStatus('No sources found', 'error');
-                this.displayCandidatesModal(citationText, []);
-            }
+            const candidates = await this.performCitationLookup(selectedText);
+            this.currentCandidates = candidates;
+            this.displayCitationModal(candidates);
         } catch (error) {
-            console.error('❌ Citation lookup failed:', error);
-            this.showCitationStatus('Lookup failed', 'error');
+            console.error('Error in findSources:', error);
+            alert('Error: ' + error.message);
         }
     }
 
-    /**
-     * Perform citation lookup using the extraction engine
-     */
+    parseCSVLine(line) {
+        const result = [];
+        let current = '';
+        let insideQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            const nextChar = line[i + 1];
+
+            if (char === '"') {
+                if (insideQuotes && nextChar === '"') {
+                    current += '"';
+                    i++;
+                } else {
+                    insideQuotes = !insideQuotes;
+                }
+            } else if (char === ',' && !insideQuotes) {
+                result.push(current.trim());
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+
+        result.push(current.trim());
+        return result;
+    }
+
     async performCitationLookup(citationText) {
-        console.log('🔧 STEP 2: Performing citation lookup');
-        console.log('Raw citation input:', citationText);
-        console.log('Citation input type:', typeof citationText);
-        console.log('Citation input length:', citationText.length);
-
-        try {
-            console.log('🌐 Attempting API call to http://localhost:5000/api/citation/lookup');
-
-            const response = await fetch('http://localhost:5000/api/citation/lookup', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    citation: citationText
-                })
-            });
-
-            console.log('📡 API Response status:', response.status);
-            console.log('📡 API Response ok:', response.ok);
-
-            if (!response.ok) {
-                throw new Error(`API request failed: ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log('📊 API Response data:', data);
-
-            if (data.success) {
-                console.log('✅ API lookup successful, candidates:', data.candidates?.length || 0);
-                return data.candidates || [];
-            } else {
-                throw new Error(data.error || 'Citation lookup failed');
-            }
-        } catch (error) {
-            console.error('❌ Citation lookup error:', error);
-
-            // Fallback to mock data if API is not available
-            if (error.message.includes('fetch')) {
-                console.log('⚠️ API server not available, using mock data');
-                const mockCandidates = await this.generateMockCandidates(citationText);
-                console.log('🎭 Generated mock candidates:', mockCandidates.length);
-                return mockCandidates;
-            }
-
-            throw error;
-        }
-    }
-
-    /**
-     * Generate candidates using scalable catalog system
-     */
-    async generateMockCandidates(citationText) {
-        console.log('🔧 STEP 3: GENERATING CANDIDATES WITH SCALABLE CATALOG');
-        console.log('Citation input:', citationText);
-
-        try {
-            // Use CSV catalog system (preferred)
-            if (this.csvCatalog && this.csvCatalog.initialized) {
-                return await this.generateCandidatesWithCSVCatalog(citationText);
-            } else if (this.dynamicCatalog && this.dynamicCatalog.initialized) {
-                console.warn('⚠️ Using fallback dynamic catalog system');
-                return await this.generateCandidatesWithDynamicCatalog(citationText);
-            } else if (this.catalog && this.catalog.initialized) {
-                console.warn('⚠️ Using fallback catalog system');
-                return await this.generateCandidatesWithCatalog(citationText);
-            } else {
-                console.warn('⚠️ No catalog available, using legacy method');
-                return await this.generateLegacyCandidates(citationText);
-            }
-
-        } catch (error) {
-            console.error('❌ Error generating candidates:', error);
-            return this.generateFallbackCandidates(citationText);
-        }
-    }
-
-    /**
-     * Generate candidates using the CSV catalog system
-     */
-    async generateCandidatesWithCSVCatalog(citationText) {
-        console.log('📊 Using CSV catalog system for candidate generation');
-
-        // Parse the citation to extract line range
-        const parsed = this.parseCitationText(citationText);
-
-        let searchTerm, lineRange;
-
-        if (parsed) {
-            searchTerm = parsed.work;
-            lineRange = { start: parsed.startLine, end: parsed.endLine };
-            console.log(`🎯 Parsed search: "${searchTerm}" lines ${lineRange.start}-${lineRange.end}`);
-        } else {
-            // Use the full citation as search term (no line numbers found)
-            searchTerm = citationText.replace(/\d+[-\d]*/, '').trim();
-            lineRange = { start: 1, end: 10 }; // Default preview
-            console.log(`🔍 Fallback search: "${searchTerm}" (default preview)`);
-        }
-
-        // Search for matching works using CSV catalog
-        const matches = this.csvCatalog.findWorkFiles(searchTerm, { maxResults: 10 });
-
-        console.log(`📊 CSV catalog found ${matches.length} matches`);
-
-        const candidates = [];
-
-        for (const match of matches) {
-            try {
-                console.log(`🔍 Extracting text from: ${match.filename} (PG ${match.pgId})`);
-
-                // Extract text from the matched file
-                const text = await this.csvCatalog.extractText(match, lineRange);
-
-                candidates.push({
-                    source: `gutenberg:${match.filename}`,
-                    confidence: match.confidence,
-                    text: text,
-                    metadata: {
-                        lines: lineRange ? `${lineRange.start}-${lineRange.end}` : 'preview',
-                        author: match.author,
-                        title: match.title,
-                        source_file: match.filename,
-                        pgId: match.pgId,
-                        language: match.language,
-                        matchType: match.matchType,
-                        confidence: match.confidence,
-                        disambiguator: `${match.author} - ${match.title}`,
-                        searchTerm: searchTerm,
-                        matchedKey: match.matchedKey,
-                        catalogSource: 'csv_catalog'
-                    },
-                    type: 'literature'
-                });
-
-            } catch (error) {
-                console.error(`❌ Failed to extract text from ${match.filename}:`, error);
-            }
-        }
-
-        // Add biblical candidates if appropriate
-        if (this.isBiblicalCitation(citationText)) {
-            candidates.push(...this.generateBiblicalCandidates(citationText));
-        }
-
-        console.log(`✅ CSV catalog generated ${candidates.length} candidates`);
-        return candidates;
-    }
-
-    /**
-     * Generate candidates using the dynamic catalog system
-     */
-    async generateCandidatesWithDynamicCatalog(citationText) {
-        console.log('📚 Using dynamic catalog system for candidate generation');
-
-        // Parse the citation to extract line range
-        const parsed = this.parseCitationText(citationText);
-
-        let searchTerm, lineRange;
-
-        if (parsed) {
-            searchTerm = parsed.work;
-            lineRange = { start: parsed.startLine, end: parsed.endLine };
-            console.log(`🎯 Parsed search: "${searchTerm}" lines ${lineRange.start}-${lineRange.end}`);
-        } else {
-            // Use the full citation as search term (no line numbers found)
-            searchTerm = citationText.replace(/\d+[-\d]*/, '').trim();
-            lineRange = { start: 1, end: 10 }; // Default preview
-            console.log(`🔍 Fallback search: "${searchTerm}" (default preview)`);
-        }
-
-        // Search for matching works
-        const matches = this.dynamicCatalog.searchWorks(searchTerm, { maxResults: 10 });
-
-        console.log(`📊 Dynamic catalog found ${matches.length} matches`);
-
-        const candidates = [];
-
-        for (const match of matches) {
-            try {
-                console.log(`🔍 Extracting text from: ${match.filename}`);
-
-                // Extract text from the matched file
-                const text = await this.extractTextFromDynamicMatch(match, lineRange);
-
-                candidates.push({
-                    source: `gutenberg:${match.filename}`,
-                    confidence: match.finalScore,
-                    text: text,
-                    metadata: {
-                        lines: lineRange ? `${lineRange.start}-${lineRange.end}` : 'preview',
-                        author: match.author,
-                        title: match.title,
-                        source_file: match.filename,
-                        pgId: match.pgId,
-                        matchType: match.matchType,
-                        similarity: match.similarity,
-                        disambiguator: `${match.author} - ${match.title}`,
-                        searchTerm: searchTerm,
-                        matchedKey: match.matchedKey,
-                        catalogSource: match.source
-                    },
-                    type: 'literature'
-                });
-
-            } catch (error) {
-                console.error(`❌ Failed to extract text from ${match.filename}:`, error);
-            }
-        }
-
-        // Add biblical candidates if appropriate
-        if (this.isBiblicalCitation(citationText)) {
-            candidates.push(...this.generateBiblicalCandidates(citationText));
-        }
-
-        console.log(`✅ Dynamic catalog generated ${candidates.length} candidates`);
-        return candidates;
-    }
-
-    /**
-     * Extract text from a dynamic catalog match
-     */
-    async extractTextFromDynamicMatch(match, lineRange) {
-        const content = await this.fetchFileContent(match.filename);
-        const lines = content.split('\n').filter(line => line.trim() !== '');
-
-        if (!lineRange) {
-            return lines.slice(0, 10).join('\n'); // Return first 10 lines as preview
-        }
-
-        const { start, end } = lineRange;
-
-        if (start < 1 || end > lines.length || start > end) {
-            throw new Error(`Invalid line range: ${start}-${end} (file has ${lines.length} lines)`);
-        }
-
-        return lines.slice(start - 1, end).join('\n');
-    }
-
-    /**
-     * Generate candidates using the catalog system
-     */
-    async generateCandidatesWithCatalog(citationText) {
-        console.log('📚 Using catalog system for candidate generation');
-
-        // Parse the citation to extract line range
-        const parsed = this.parseCitationText(citationText);
-
-        let searchTerm, lineRange;
-
-        if (parsed) {
-            searchTerm = parsed.work;
-            lineRange = { start: parsed.startLine, end: parsed.endLine };
-            console.log(`🎯 Parsed search: "${searchTerm}" lines ${lineRange.start}-${lineRange.end}`);
-        } else {
-            // Use the full citation as search term (no line numbers found)
-            searchTerm = citationText.replace(/\d+[-\d]*/, '').trim();
-            lineRange = { start: 1, end: 10 }; // Default preview
-            console.log(`🔍 Fallback search: "${searchTerm}" (default preview)`);
-        }
-
-        // Generate candidates with the catalog
-        const candidates = await this.catalog.generateCandidatesWithText(searchTerm, lineRange);
-
-        console.log(`✅ Catalog generated ${candidates.length} candidates`);
-
-        // Add biblical candidates if appropriate
-        if (this.isBiblicalCitation(citationText)) {
-            candidates.push(...this.generateBiblicalCandidates(citationText));
-        }
-
-        return candidates;
-    }
-
-    /**
-     * Legacy candidate generation (fallback)
-     */
-    async generateLegacyCandidates(citationText) {
-        console.log('🔄 Using legacy candidate generation');
-
-        // Parse the citation properly
-        const parsed = this.parseCitationText(citationText);
+        console.log('🔧 Generating candidates...');
+        const parsed = this.parseCitation(citationText);
         console.log('Parsed citation:', parsed);
-
-        if (!parsed) {
-            console.log('❌ Could not parse citation, returning empty array');
-            return [];
-        }
-
-        // Find the correct cleaned file
-        const cleanedFile = this.findCleanedFile(parsed.work);
-        if (!cleanedFile) {
-            console.error('❌ No cleaned file found for:', parsed.work);
-            return [];
-        }
-
-        console.log(`📚 Using file: ${cleanedFile}`);
-
-        // Read the actual file content
-        const fileContent = await this.fetchFileContent(cleanedFile);
-        const lines = fileContent.split('\n').filter(line => line.trim() !== '');
-
-        console.log(`📏 Total lines in file: ${lines.length}`);
-        console.log(`🎯 Extracting lines ${parsed.startLine}-${parsed.endLine}`);
-
-        // Validate line range
-        if (parsed.startLine < 1 || parsed.endLine > lines.length || parsed.startLine > parsed.endLine) {
-            console.error(`❌ Invalid line range: ${parsed.startLine}-${parsed.endLine} (file has ${lines.length} lines)`);
-            return [];
-        }
-
-        // Extract EXACT lines (1-based to 0-based conversion)
-        const extractedLines = lines.slice(parsed.startLine - 1, parsed.endLine);
-
-        // Show what we're extracting
-        console.log('=== EXTRACTED LINES FROM REAL FILE ===');
-        extractedLines.forEach((line, index) => {
-            const lineNum = parsed.startLine + index;
-            console.log(`Line ${lineNum}: "${line}"`);
-        });
-
-        const extractedText = extractedLines.join('\n');
-        console.log('📄 Final extracted text:', extractedText);
-
-        return [{
-            source: `gutenberg:${parsed.work.replace(/\s+/g, '_')}`,
-            confidence: 0.95,
-            text: extractedText,
-            metadata: {
-                lines: `${parsed.startLine}-${parsed.endLine}`,
-                author: this.getAuthorForWork(parsed.work),
-                title: this.getTitleForWork(parsed.work),
-                source_file: cleanedFile,
-                total_lines: lines.length
-            },
-            type: 'literature'
-        }];
+        const candidates = await this.generateCatalogCandidates(parsed);
+        return candidates;
     }
 
-    /**
-     * Parse citation text robustly
-     */
-    parseCitationText(citation) {
-        console.log('🔧 Parsing citation:', citation);
+    parseCitation(citationText) {
+        console.log('🔧 Parsing citation:', citationText);
 
-        // Clean the citation
-        const cleaned = citation.toLowerCase().trim()
-            .replace(/[.,;:!?]/g, ' ')  // Remove punctuation
-            .replace(/\s+/g, ' ')       // Normalize whitespace
-            .trim();
+        // ── ① 青空文庫パターン: aozora:作者ID/作品ID ──────────────────────
+        const aozoraPattern = /^aozora:(\d+)\/(\d+)$/i;
+        const aozoraMatch = citationText.trim().match(aozoraPattern);
+        if (aozoraMatch) {
+            console.log(`✅ Aozora pattern matched: author=${aozoraMatch[1]} work=${aozoraMatch[2]}`);
+            return {
+                type: 'aozora',
+                authorId: aozoraMatch[1].padStart(6, '0'),
+                workId: aozoraMatch[2],
+                work: citationText.toLowerCase()
+            };
+        }
 
-        console.log('Cleaned citation:', cleaned);
-
-        // Extract work name and line numbers
-        const patterns = [
-            /^(.+?)\s+(\d+)-(\d+)$/,     // "absalom and achitophel 7-9"
-            /^(.+?)\s+(\d+)$/,           // "paradise lost 7"
-            /^(.+?)\s+lines?\s+(\d+)-(\d+)$/,  // "hamlet lines 7-9"
-            /^(.+?)\s+line\s+(\d+)$/,    // "hamlet line 7"
-        ];
-
-        for (let i = 0; i < patterns.length; i++) {
-            const pattern = patterns[i];
-            const match = cleaned.match(pattern);
-            if (match) {
-                const work = match[1].trim();
-                const startLine = parseInt(match[2]);
-                const endLine = match[3] ? parseInt(match[3]) : startLine;
-
-                console.log(`✅ Pattern ${i + 1} matched: work="${work}", lines=${startLine}-${endLine}`);
-                return { work, startLine, endLine };
+        // ── ② Bible参照パターン: gen1:10, GEN 1:10, Genesis 1:10, 創世記1:1-5 ──
+        const biblePattern = /^([1-3]?[a-zA-Z぀-鿿]+)\s*(\d+)\s*[:.]\s*(\d+)(?:\s*-\s*(\d+))?$/;
+        const bibleMatch = citationText.trim().match(biblePattern);
+        if (bibleMatch) {
+            const bookCode = this.resolveBibleBook(bibleMatch[1]);
+            if (bookCode) {
+                const chapter    = parseInt(bibleMatch[2]);
+                const verseStart = parseInt(bibleMatch[3]);
+                const verseEnd   = bibleMatch[4] ? parseInt(bibleMatch[4]) : verseStart;
+                console.log(`✅ Bible pattern matched: ${bookCode} ${chapter}:${verseStart}-${verseEnd}`);
+                return {
+                    type: 'bible',
+                    book: bookCode,
+                    chapter,
+                    verseStart,
+                    verseEnd,
+                    work: citationText.toLowerCase()
+                };
             }
         }
 
-        console.error('❌ Failed to parse citation with any pattern');
-        return null;
+        // ── ③ 既存パターン: "Work Name X-Y" ─────────────────────────────────
+        const pattern = /^(.+?)\s+(\d+)\s*-\s*(\d+)$/;
+        const match = citationText.match(pattern);
+        if (match) {
+            console.log(`✅ Pattern matched: work="${match[1]}", lines=${match[2]}-${match[3]}`);
+            return {
+                work: match[1].toLowerCase(),
+                startLine: parseInt(match[2]),
+                endLine: parseInt(match[3])
+            };
+        }
+
+        return { work: citationText.toLowerCase() };
     }
 
-    /**
-     * Map work names to cleaned files
-     */
-    findCleanedFile(workName) {
-        console.log('🗂️ Finding file for work:', workName);
-
-        const fileMap = {
-            'absalom and achitophel': './test_corpus/cleaned/pg_absalom_cleaned.txt',
-            'absalom': './test_corpus/cleaned/pg_absalom_cleaned.txt',
-            'achitophel': './test_corpus/cleaned/pg_absalom_cleaned.txt',
-            'paradise lost': './test_corpus/cleaned/pg12242_cleaned.txt',
-            'paradise': './test_corpus/cleaned/pg12242_cleaned.txt',
-            // Add more mappings as needed
+    resolveBibleBook(raw) {
+        const map = {
+            // 日本語書名
+            '創世記': 'GEN', '出エジプト記': 'EXO',
+            'レビ記': 'LEV', '民数記': 'NUM', '申命記': 'DEU',
+            'ヨシュア記': 'JOS', '詩編': 'PSA', '詩箇': 'PSA',
+            '箖言': 'PRO', 'マタイ': 'MAT', 'マタイ福音書': 'MAT',
+            'マルコ': 'MRK', 'ルカ': 'LUK', 'ヨハネ': 'JHN',
+            'ローマ': 'ROM', '黙示録': 'REV', 'ヨハネ黙示録': 'REV',
+            'イザヤ書': 'ISA', 'エレミヤ書': 'JER',
+            'ヨブ記': 'JOB', 'ルツ記': 'RUT',
+            // 英語書名
+            'gen': 'GEN', 'genesis': 'GEN',
+            'exo': 'EXO', 'exodus': 'EXO',
+            'lev': 'LEV', 'leviticus': 'LEV',
+            'num': 'NUM', 'numbers': 'NUM',
+            'deu': 'DEU', 'deuteronomy': 'DEU',
+            'jos': 'JOS', 'joshua': 'JOS',
+            'psa': 'PSA', 'psalm': 'PSA', 'psalms': 'PSA',
+            'pro': 'PRO', 'proverbs': 'PRO',
+            'mat': 'MAT', 'matthew': 'MAT',
+            'mar': 'MRK', 'mark': 'MRK', 'mrk': 'MRK',
+            'luk': 'LUK', 'luke': 'LUK',
+            'joh': 'JHN', 'john': 'JHN', 'jhn': 'JHN',
+            'rom': 'ROM', 'romans': 'ROM',
+            'rev': 'REV', 'revelation': 'REV',
         };
-
-        const normalized = workName.toLowerCase().trim();
-        const filePath = fileMap[normalized];
-
-        console.log(`📂 Work "${normalized}" mapped to: ${filePath || 'NOT FOUND'}`);
-        return filePath;
+        return map[raw.toLowerCase()] || null;
     }
 
-    /**
-     * Fetch file content (using fetch for web compatibility)
-     */
-    async fetchFileContent(filePath) {
-        console.log('📥 Fetching file content:', filePath);
+    async generateCatalogCandidates(parsed) {
+        console.log('🔄 Generating candidates...');
 
-        try {
-            const response = await fetch(filePath);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // ── ① 青空文庫 ────────────────────────────────────────────────────
+        if (parsed.type === 'aozora') {
+            const config = window.corpusConfig || {};
+            if (!config.aozora?.enabled) {
+                console.warn('⚠️ Aozora is disabled in corpus-config');
+                return [];
             }
 
-            const content = await response.text();
-            console.log(`✅ File loaded successfully, length: ${content.length} chars`);
-            return content;
+            const apiUrl = `${config.aozora.apiUrl}?author=${parsed.authorId}&work=${parsed.workId}`;
+            console.log(`📡 Fetching Aozora: ${apiUrl}`);
 
-        } catch (error) {
-            console.error('❌ Failed to fetch file:', error);
-            throw error;
+            try {
+                const res = await fetch(apiUrl);
+                const data = await res.json();
+
+                if (!data.success) {
+                    console.error('Aozora API error:', data.error);
+                    return [];
+                }
+
+                console.log(`✅ Aozora: ${data.length} chars loaded`);
+                return [{
+                    id: `AOZORA_${parsed.authorId}_${parsed.workId}`,
+                    pgId: null,
+                    title: data.title || `青空文庫 作品${parsed.workId}`,
+                    authors: data.author || `作者${parsed.authorId}`,
+                    source: 'aozora',
+                    type: 'aozora',
+                    confidence: 0.99,
+                    metadata: { authorId: parsed.authorId, workId: parsed.workId },
+                    text: data.text
+                }];
+            } catch (e) {
+                console.error('Aozora fetch error:', e);
+                return [];
+            }
         }
-    }
 
-    /**
-     * Get author for work
-     */
-    getAuthorForWork(workName) {
-        const authorMap = {
-            'absalom and achitophel': 'John Dryden',
-            'absalom': 'John Dryden',
-            'achitophel': 'John Dryden',
-            'paradise lost': 'John Milton',
-            'paradise': 'John Milton',
-        };
+        // ── ② Bible ─────────────────────────────────────────────────────
+        if (parsed.type === 'bible') {
+            const bp = this.bibleProvider;
+            if (!bp || !bp.initialized) {
+                console.warn('⚠️ BibleProvider not ready');
+                return [];
+            }
+            try {
+                const allVerses = bp.getAllVerses(parsed.book);
+                if (!allVerses || allVerses.length === 0) return [];
+                const fullText = allVerses.map(v => `[${v.ref}] ${v.text}`).join('\n');
+                const startRef  = `${parsed.book} ${parsed.chapter}:${parsed.verseStart}`;
+                const endRef    = `${parsed.book} ${parsed.chapter}:${parsed.verseEnd}`;
+                const startLine = allVerses.findIndex(v => v.ref === startRef) + 1;
+                const endLine   = allVerses.findIndex(v => v.ref === endRef)   + 1;
+                const label = `${parsed.book} ${parsed.chapter}:${parsed.verseStart}${parsed.verseEnd !== parsed.verseStart ? '-' + parsed.verseEnd : ''}`;
+                console.log(`✅ Bible: 全${allVerses.length}節, 表示範囲 lines ${startLine}-${endLine}`);
+                return [{
+                    id: `BIBLE_${parsed.book}`,
+                    pgId: null,
+                    title: label,
+                    authors: 'Various',
+                    source: 'bible',
+                    confidence: 0.99,
+                    type: 'bible',
+                    metadata: { book: parsed.book, chapter: parsed.chapter, lines: `${startLine}-${endLine}` },
+                    text: fullText
+                }];
+            } catch (e) {
+                console.error('Bible lookup error:', e);
+                return [];
+            }
+        }
 
-        return authorMap[workName.toLowerCase()] || 'Unknown Author';
-    }
-
-    /**
-     * Get title for work
-     */
-    getTitleForWork(workName) {
-        const titleMap = {
-            'absalom and achitophel': 'Absalom and Achitophel',
-            'absalom': 'Absalom and Achitophel',
-            'achitophel': 'Absalom and Achitophel',
-            'paradise lost': 'Paradise Lost',
-            'paradise': 'Paradise Lost',
-        };
-
-        return titleMap[workName.toLowerCase()] || workName;
-    }
-
-    /**
-     * Generate fallback candidates if file loading fails
-     */
-    generateFallbackCandidates(citationText) {
-        console.log('🔄 Generating fallback candidates');
+        // ── ③ Gutenberg（既存） ──────────────────────────────────────────
+        if (!this.unifiedCatalog || this.unifiedCatalog.length === 0) {
+            console.warn('⚠️ Catalog is empty');
+            return [];
+        }
 
         const candidates = [];
+        const bibleCandidates = [];
+        const searchTerm = parsed.work;
+        // 日本語書名を英語に変換してカタログ検索も行う
+        const jaToEnMap = {
+            '創世記': 'genesis', '出エジプト記': 'exodus', 'レビ記': 'leviticus',
+            '民数記': 'numbers', '申命記': 'deuteronomy', 'ヨシュア記': 'joshua',
+            '士師記': 'judges', 'ルツ記': 'ruth', '詩篇': 'psalms', '詩編': 'psalms',
+            '箴言': 'proverbs', 'ヨブ記': 'job', 'イザヤ書': 'isaiah',
+            'エレミヤ書': 'jeremiah', 'マタイ福音書': 'matthew', 'マルコ福音書': 'mark',
+            'ルカ福音書': 'luke', 'ヨハネ福音書': 'john', 'ローマ書': 'romans',
+            'ヨハネ黙示録': 'revelation', '黙示録': 'revelation',
+        };
+        const searchTermEn = jaToEnMap[parsed.work] || null;
 
-        // Check for biblical patterns
-        if (/\b\d+:\d+/.test(citationText) || /genesis|matthew|romans|john|psalm/i.test(citationText)) {
-            console.log('📖 Adding biblical fallback candidate');
-            candidates.push({
-                source: 'bible:esv',
-                confidence: 0.95,
-                text: 'In the beginning, God created the heavens and the earth. The earth was without form and void, and darkness was over the face of the deep.',
-                metadata: {
-                    book: 'Genesis',
-                    chapter: 1,
-                    verses: '1-2',
-                    translation: 'ESV',
-                    source: 'bible_api'
-                },
-                type: 'bible'
-            });
+        // 先にbibleエントリーだけスキャン
+        for (const work of this.unifiedCatalog) {
+            if (work.source !== 'bible') continue;
+            const titleLower = work.title.toLowerCase();
+            let match = false;
+            let confidence = 0;
+            if (searchTermEn && titleLower.includes(searchTermEn))  { match = true; confidence = 0.99; }
+            else if (titleLower.includes(searchTerm))               { match = true; confidence = 0.99; }
+            if (!match) continue;
+            // bible処理（既存のコードに流す）
+            const bp = this.bibleProvider;
+            if (!bp || !bp.initialized) continue;
+            const bookCode = work.bookCode;
+            if (!bookCode) continue;
+            try {
+                const isJapanese = /[぀-鿿]/.test(searchTerm);
+                const versionId = isJapanese && bp.versions['jpn-jpn1965'] ? 'jpn-jpn1965' : null;
+                const allVerses = bp.getAllVerses(bookCode, versionId);
+                if (!allVerses || allVerses.length === 0) continue;
+                const fullText = allVerses.map(v => `[${v.ref}] ${v.text}`).join('\n');
+                candidates.push({
+                    id: work.id,
+                    pgId: null,
+                    title: work.title,
+                    authors: work.authors,
+                    source: 'bible',
+                    type: 'bible',
+                    confidence: 0.99,
+                    metadata: { book: bookCode, chapter: null, lines: null },
+                    text: fullText
+                });
+            } catch(e) { console.error('Bible pre-scan error:', e); }
         }
 
-        // Check for literary patterns - use hardcoded sample
-        if (/absalom|achitophel/i.test(citationText)) {
-            console.log('📚 Adding Absalom fallback candidate');
-            candidates.push({
-                source: 'gutenberg:absalom_achitophel_fallback',
-                confidence: 0.80,
-                text: 'Sagacious, bold, and turbulent of wit,\nRestless, unfixed in principles and place,\nIn power unpleased, impatient of disgrace;',
-                metadata: {
-                    lines: '7-9',
-                    author: 'John Dryden',
-                    title: 'Absalom and Achitophel',
-                    source_file: 'fallback_data'
-                },
-                type: 'literature'
-            });
-        }
+        // 次にGutenberg/青空文庫をスキャン
+        for (const work of this.unifiedCatalog) {
+            if (work.source === 'bible') continue; // 上でスキャン済み
+            const titleLower  = work.title.toLowerCase();
+            let match = false;
+            let confidence = 0;
 
-        if (/paradise|lost/i.test(citationText)) {
-            console.log('📚 Adding Paradise Lost fallback candidate');
-            candidates.push({
-                source: 'gutenberg:paradise_lost_fallback',
-                confidence: 0.75,
-                text: 'Of Man\'s first disobedience, and the fruit\nOf that forbidden tree whose mortal taste\nBrought death into the World, and all our woe',
-                metadata: {
-                    lines: '1-3',
-                    author: 'John Milton',
-                    title: 'Paradise Lost',
-                    source_file: 'fallback_data'
-                },
-                type: 'literature'
-            });
-        }
+            if (titleLower === searchTerm)                                { match = true; confidence = 0.99; }
+            else if (titleLower.startsWith(searchTerm.split(' ')[0]))    { match = true; confidence = 0.85; }
+            else if (titleLower.includes(searchTerm))                    { match = true; confidence = 0.75; }
+            // 日本語書名→英語変換でマッチ
+            else if (searchTermEn && titleLower.includes(searchTermEn))  { match = true; confidence = 0.95; }
 
-        console.log('🎯 STEP 4: Fallback candidates generation completed');
-        console.log('Total fallback candidates generated:', candidates.length);
+            if (match) {
+                // ── 聖書エントリーの場合 ─────────────────────────────────
+                if (work.source === 'bible') {
+                    const bp = this.bibleProvider;
+                    if (!bp || !bp.initialized) continue;
+                    const bookCode = work.bookCode;
+                    if (!bookCode) continue;
+                    // 全節を取得してビューワーに渡す
+                    const chapter    = parsed.chapter    || null;
+                    const verseStart = parsed.verseStart || null;
+                    const verseEnd   = parsed.verseEnd   || null;
+                    try {
+                        // 日本語検索の場合は日本語版を優先
+                        const isJapanese = /[぀-鿿]/.test(searchTerm);
+                        const versionId = isJapanese && bp.versions['jpn-jpn1965'] ? 'jpn-jpn1965' : null;
+                        // 全節を収集
+                        const allVerses = bp.getAllVerses(bookCode, versionId);
+                        if (!allVerses || allVerses.length === 0) continue;
+                        const fullText = allVerses.map(v => `[${v.ref}] ${v.text}`).join('\n');
+                        // 指定範囲の行番号を計算
+                        let startLine = null, endLine = null;
+                        if (chapter && verseStart) {
+                            const startRef = `${bookCode} ${chapter}:${verseStart}`;
+                            const endRef   = `${bookCode} ${chapter}:${verseEnd || verseStart}`;
+                            startLine = allVerses.findIndex(v => v.ref === startRef) + 1;
+                            endLine   = allVerses.findIndex(v => v.ref === endRef)   + 1;
+                        }
+                        candidates.push({
+                            id: work.id,
+                            pgId: null,
+                            title: work.title,
+                            authors: work.authors,
+                            source: 'bible',
+                            type: 'bible',
+                            confidence,
+                            metadata: {
+                                book: bookCode,
+                                chapter,
+                                lines: startLine && endLine ? `${startLine}-${endLine}` : null
+                            },
+                            text: fullText
+                        });
+                    } catch(e) {
+                        console.error('Bible catalog lookup error:', e);
+                    }
+                    if (candidates.length >= 5) break;
+                    continue;
+                }
+
+                // ── 青空文庫エントリーの場合 ──────────────────────────────
+                if (work.source === 'aozora') {
+                    const realWorkId = String(work.pgId - 1_000_000);
+                    const authorId = work.subjects;
+                    const config = window.corpusConfig || {};
+                    if (!config.aozora?.enabled) continue;
+                    try {
+                        const apiUrl = `${config.aozora.apiUrl}?author=${authorId}&work=${realWorkId}`;
+                        console.log(`📡 Fetching Aozora: ${apiUrl}`);
+                        const res = await fetch(apiUrl);
+                        const data = await res.json();
+                        if (data.success) {
+                            candidates.push({
+                                id: work.id,
+                                pgId: work.pgId,
+                                title: work.title,
+                                authors: work.authors,
+                                source: 'aozora',
+                                type: 'aozora',
+                                confidence,
+                                metadata: { authorId, workId: realWorkId },
+                                text: data.text
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Aozora fetch error:', e);
+                    }
+                    if (candidates.length >= 5) break;
+                    continue;
+                }
+
+                // ── Gutenberg ─────────────────────────────────────────────
+                console.log(`✅ Catalog hit: "${work.title}" (ID: ${work.pgId})`);
+                try {
+                    const apiUrl = `${this.apiBaseUrl}/api/text?id=${work.pgId}`;
+                    const response = await fetch(apiUrl);
+                    const data = await response.json();
+
+                    if (data.success) {
+                        const lines = data.text.split('\n');
+                        candidates.push({
+                            id: work.id,
+                            pgId: work.pgId,
+                            title: work.title,
+                            authors: work.authors,
+                            source: `gutenberg:${work.pgId}`,
+                            confidence,
+                            type: 'literature',
+                            metadata: {
+                                textId: work.pgId,
+                                lines: parsed.startLine && parsed.endLine
+                                    ? `${parsed.startLine}-${parsed.endLine}` : null,
+                                totalLines: lines.length
+                            },
+                            text: lines.slice(
+                                (parsed.startLine || 1) - 1,
+                                (parsed.endLine || lines.length)
+                            ).join('\n')
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error fetching text:', error);
+                }
+
+                if (candidates.length >= 5) break;
+            }
+        }
 
         return candidates;
     }
 
-    /**
-     * Check if citation looks biblical
-     */
-    isBiblicalCitation(citationText) {
-        const biblicalPatterns = [
-            // Chapter:Verse pattern
-            /\b\d+:\d+/,
-            // Book names (Old Testament)
-            /\b(genesis|exodus|leviticus|numbers|deuteronomy|joshua|judges|ruth|samuel|kings|chronicles|ezra|nehemiah|esther|job|psalm|proverbs|ecclesiastes|song|isaiah|jeremiah|lamentations|ezekiel|daniel|hosea|joel|amos|obadiah|jonah|micah|nahum|habakkuk|zephaniah|haggai|zechariah|malachi)\b/i,
-            // Book names (New Testament)
-            /\b(matthew|mark|luke|john|acts|romans|corinthians|galatians|ephesians|philippians|colossians|thessalonians|timothy|titus|philemon|hebrews|james|peter|jude|revelation)\b/i,
-            // Common abbreviations
-            /\b(gen|exo|lev|num|deu|jos|jdg|rut|sam|kgs|chr|ezr|neh|est|psa|pro|ecc|isa|jer|lam|ezk|dan|hos|joe|amo|oba|jon|mic|nah|hab|zep|hag|zec|mal|mat|mrk|luk|jhn|act|rom|cor|gal|eph|php|col|thes|tim|tit|phm|heb|jas|pet|jud|rev)\b/i
-        ];
-
-        return biblicalPatterns.some(pattern => pattern.test(citationText));
-    }
-
-    /**
-     * Generate biblical candidates
-     */
-    generateBiblicalCandidates(citationText) {
-        console.log('📖 Generating biblical candidates for:', citationText);
-
-        // Use BibleProvider if available
-        if (this.bibleProvider && this.bibleProvider.initialized) {
-            const results = this.bibleProvider.search(citationText);
-
-            if (results && results.length > 0) {
-                console.log(`✅ BibleProvider found ${results.length} results`);
-                return results.map(result => ({
-                    source: 'bible:kjv',
-                    confidence: result.confidence / 100, // Convert to 0-1 scale
-                    text: result.text,
-                    metadata: {
-                        book: result.title.split(' ')[0],
-                        chapter: result.lines.split(':')[0],
-                        verses: result.lines,
-                        translation: result.author,
-                        title: result.title,
-                        source: 'BibleNLP/ebible'
-                    },
-                    type: 'bible'
-                }));
-            }
+    displayCitationModal(candidates) {
+        const citationModal = document.getElementById('citationModal');
+        if (!citationModal) {
+            console.error('Citation modal not found');
+            return;
         }
 
-        // Fallback: try to parse as direct citation
-        if (this.bibleProvider && this.bibleProvider.initialized) {
-            const passage = this.bibleProvider.getPassage(citationText);
-            if (passage) {
-                return [{
-                    source: 'bible:kjv',
-                    confidence: 1.0,
-                    text: passage.text,
-                    metadata: {
-                        book: passage.book,
-                        chapter: passage.chapter,
-                        verses: `${passage.startVerse}-${passage.endVerse || passage.startVerse}`,
-                        translation: passage.version,
-                        title: passage.citation,
-                        source: 'BibleNLP/ebible'
-                    },
-                    type: 'bible'
-                }];
-            }
+        const container = citationModal.querySelector('.candidates-container') ||
+            citationModal.querySelector('#candidatesContainer');
+
+        if (!container) {
+            console.error('Candidates container not found');
+            return;
         }
 
-        // Final fallback: return empty array (no hardcoded data)
-        console.log('⚠️ No Bible results found for:', citationText);
-        return [];
-    }
-
-    /**
-     * Display citation status message
-     */
-    showCitationStatus(message, type = 'info') {
-        const statusElement = document.getElementById('citationStatus');
-        if (statusElement) {
-            statusElement.textContent = message;
-            statusElement.className = `citation-status ${type}`;
-
-            // Clear status after 3 seconds for success/error messages
-            if (type !== 'loading') {
-                setTimeout(() => {
-                    statusElement.textContent = '';
-                    statusElement.className = 'citation-status';
-                }, 3000);
-            }
-        }
-    }
-
-    /**
-     * Display the candidates modal
-     */
-    displayCandidatesModal(citationText, candidates) {
-        this.currentCandidates = candidates;
-
-        // Set citation query text
-        const queriedCitation = document.getElementById('queriedCitation');
-        if (queriedCitation) {
-            queriedCitation.textContent = citationText;
-        }
-
-        // Show loading state initially
-        this.showCandidatesLoading();
-
-        // Show modal
-        const modal = document.getElementById('citationModal');
-        if (modal) {
-            modal.style.display = 'flex';
-        }
-
-        // After a brief delay, show candidates
-        setTimeout(() => {
-            this.renderCandidates(candidates);
-        }, 500);
-    }
-
-    /**
-     * Show loading state in candidates modal
-     */
-    showCandidatesLoading() {
-        const loadingElement = document.getElementById('loadingCandidates');
-        const candidatesList = document.getElementById('candidatesList');
-        const noCandidates = document.getElementById('noCandidates');
-
-        if (loadingElement) loadingElement.style.display = 'flex';
-        if (candidatesList) candidatesList.style.display = 'none';
-        if (noCandidates) noCandidates.style.display = 'none';
-    }
-
-    /**
-     * Render candidates in the modal
-     */
-    renderCandidates(candidates) {
-        const loadingElement = document.getElementById('loadingCandidates');
-        const candidatesList = document.getElementById('candidatesList');
-        const noCandidates = document.getElementById('noCandidates');
-
-        // Hide loading
-        if (loadingElement) loadingElement.style.display = 'none';
+        let html = '<div class="candidates-list">';
 
         if (candidates.length === 0) {
-            if (noCandidates) noCandidates.style.display = 'block';
-            if (candidatesList) candidatesList.style.display = 'none';
-            return;
-        }
-
-        // Show candidates list
-        if (candidatesList) {
-            candidatesList.style.display = 'block';
-            candidatesList.innerHTML = '';
-
-            // Filter candidates based on current tab
-            const filteredCandidates = this.filterCandidatesByType(candidates);
-
-            filteredCandidates.forEach((candidate, index) => {
-                const cardElement = this.createCandidateCard(candidate, index);
-                candidatesList.appendChild(cardElement);
+            html += '<div class="no-candidates"><p>No sources found. Try a different search.</p></div>';
+        } else {
+            candidates.forEach((candidate, index) => {
+                const confidencePct = (candidate.confidence * 100).toFixed(0);
+                const confidenceColor = confidencePct >= 90 ? '#2ecc71' :
+                    confidencePct >= 70 ? '#f39c12' : '#e74c3c';
+                html += `
+                <div class="candidate-item" style="
+                    border: 1px solid #ddd;
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    margin-bottom: 10px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    background: ${index === 0 ? '#f0f7ff' : '#fff'};
+                    cursor: pointer;
+                    transition: background 0.2s;
+                " onmouseover="this.style.background='#e8f4fd'" onmouseout="this.style.background='${index === 0 ? '#f0f7ff' : '#fff'}'">
+                    <div style="flex: 1;">
+                        <div style="font-weight: bold; font-size: 14px; margin-bottom: 4px;">
+                            ${index === 0 ? '⭐ ' : ''}${candidate.title}
+                        </div>
+                        <div style="color: #666; font-size: 12px;">by ${candidate.authors}</div>
+                        <div style="margin-top: 4px;">
+                            <span style="
+                                background: ${confidenceColor};
+                                color: white;
+                                padding: 2px 8px;
+                                border-radius: 12px;
+                                font-size: 11px;
+                                font-weight: bold;
+                            ">Confidence: ${confidencePct}%</span>
+                            ${candidate.pgId ? `<span style="color:#999; font-size:11px; margin-left:8px;">PG #${candidate.pgId}</span>` : ''}
+                            ${candidate.type === 'aozora' ? `<span style="color:#e67e22; font-size:11px; margin-left:8px;">📚 青空文庫</span>` : ''}
+                        </div>
+                    </div>
+                    <button class="select-btn" data-index="${index}" style="
+                        background: #4a90e2;
+                        color: white;
+                        border: none;
+                        padding: 8px 18px;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-size: 13px;
+                        font-weight: bold;
+                        margin-left: 12px;
+                        white-space: nowrap;
+                        transition: background 0.2s;
+                    " onmouseover="this.style.background='#357abd'" onmouseout="this.style.background='#4a90e2'">
+                        Open Text ▶
+                    </button>
+                </div>
+            `;
             });
         }
 
-        if (noCandidates) noCandidates.style.display = 'none';
-    }
+        html += '</div>';
+        container.innerHTML = html;
 
-    /**
-     * Filter candidates by selected source type
-     */
-    filterCandidatesByType(candidates) {
-        if (this.currentSourceType === 'all') {
-            return candidates;
-        }
-        return candidates.filter(candidate => candidate.type === this.currentSourceType);
-    }
-
-    /**
-     * Create a candidate card element
-     */
-    createCandidateCard(candidate, index) {
-        const card = document.createElement('div');
-        card.className = 'candidate-card';
-        card.dataset.index = index;
-
-        const confidenceLevel = this.getConfidenceLevel(candidate.confidence);
-        const confidencePercentage = Math.round(candidate.confidence * 100);
-
-        card.innerHTML = `
-            <div class="candidate-header">
-                <div class="source-info">
-                    <span class="source-type-badge ${candidate.type}">${candidate.type}</span>
-                    <span class="source-title">${this.getSourceTitle(candidate)}</span>
-                </div>
-                <div class="confidence-indicator">
-                    <span class="confidence-score ${confidenceLevel}">${confidencePercentage}%</span>
-                    <div class="confidence-bar">
-                        <div class="confidence-fill ${confidenceLevel}" style="width: ${confidencePercentage}%"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="passage-preview">
-                <div class="passage-text">${this.formatPassageText(candidate.text)}</div>
-                <div class="passage-citation">${this.formatCitation(candidate)}</div>
-            </div>
-
-            <div class="candidate-metadata">
-                ${this.renderMetadata(candidate.metadata)}
-            </div>
-
-            <button class="select-candidate-btn" onclick="citationIntegration.selectCandidate(${index})">
-                Select This Source
-            </button>
-        `;
-
-        return card;
-    }
-
-    /**
-     * Get confidence level category
-     */
-    getConfidenceLevel(confidence) {
-        if (confidence >= 0.8) return 'high';
-        if (confidence >= 0.5) return 'medium';
-        return 'low';
-    }
-
-    /**
-     * Get display title for source
-     */
-    getSourceTitle(candidate) {
-        if (candidate.type === 'bible') {
-            return `${candidate.metadata.book} ${candidate.metadata.chapter}:${candidate.metadata.verses}`;
-        } else {
-            return candidate.metadata.title || candidate.source;
-        }
-    }
-
-    /**
-     * Format passage text for display
-     */
-    formatPassageText(text) {
-        // Limit to 200 characters and add ellipsis if needed
-        if (text.length > 200) {
-            return text.substring(0, 200) + '...';
-        }
-        return text;
-    }
-
-    /**
-     * Format citation for display
-     */
-    formatCitation(candidate) {
-        if (candidate.type === 'bible') {
-            return `${candidate.metadata.translation} Translation`;
-        } else {
-            let citation = '';
-            if (candidate.metadata.author) {
-                citation += `by ${candidate.metadata.author}`;
-            }
-            if (candidate.metadata.lines) {
-                citation += citation ? `, lines ${candidate.metadata.lines}` : `Lines ${candidate.metadata.lines}`;
-            }
-            return citation;
-        }
-    }
-
-    /**
-     * Render metadata items
-     */
-    renderMetadata(metadata) {
-        const items = [];
-
-        // Common metadata fields
-        if (metadata.author) {
-            items.push(`<div class="metadata-item">
-                <div class="metadata-label">Author</div>
-                <div class="metadata-value">${metadata.author}</div>
-            </div>`);
-        }
-
-        if (metadata.lines) {
-            items.push(`<div class="metadata-item">
-                <div class="metadata-label">Lines</div>
-                <div class="metadata-value">${metadata.lines}</div>
-            </div>`);
-        }
-
-        if (metadata.book && metadata.chapter) {
-            items.push(`<div class="metadata-item">
-                <div class="metadata-label">Reference</div>
-                <div class="metadata-value">${metadata.book} ${metadata.chapter}</div>
-            </div>`);
-        }
-
-        if (metadata.translation) {
-            items.push(`<div class="metadata-item">
-                <div class="metadata-label">Translation</div>
-                <div class="metadata-value">${metadata.translation}</div>
-            </div>`);
-        }
-
-        return items.join('');
-    }
-
-    /**
-     * Select a candidate
-     */
-    selectCandidate(index) {
-        console.log('🎯 STEP 5: Candidate selected');
-        console.log('Selected index:', index);
-
-        const candidate = this.currentCandidates[index];
-        console.log('Selected candidate:', candidate);
-
-        if (!candidate) {
-            console.error('❌ Invalid candidate selection, index:', index);
-            return;
-        }
-
-        this.selectedCandidate = candidate;
-
-        console.log('📊 Candidate details:');
-        console.log('Source:', candidate.source);
-        console.log('Confidence:', candidate.confidence);
-        console.log('Text preview:', candidate.text.substring(0, 100) + '...');
-        console.log('Metadata:', candidate.metadata);
-
-        // Update UI to show selection
-        document.querySelectorAll('.candidate-card').forEach((card, i) => {
-            if (i === index) {
-                card.classList.add('selected');
-            } else {
-                card.classList.remove('selected');
-            }
+        container.querySelectorAll('.select-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const index = parseInt(e.currentTarget.dataset.index);
+                this.selectCandidate(index, candidates[index]);
+            });
         });
 
-        // Show full-text viewer instead of confirmation dialog
-        setTimeout(() => {
-            this.showFullTextViewer(candidate);
-        }, 300);
+        citationModal.style.display = 'block';
+        console.log('Modal opened');
     }
 
-    /**
-     * Show full-text viewer for selected candidate
-     */
+    async selectCandidate(index, candidate) {
+        console.log('🎯 Candidate selected:', candidate.title);
+        this.selectedCandidate = candidate;
+        await this.showFullTextViewer(candidate);
+    }
+
     async showFullTextViewer(candidate) {
+        console.log('📖 Showing full-text viewer for:', candidate.title);
+
         if (!this.fullTextViewer) {
             console.error('❌ Full-text viewer not available');
-            this.showConfirmationDialog(); // Fallback to old method
             return;
         }
 
         try {
-            console.log('📖 Opening full-text viewer for:', candidate.metadata.title);
+            await this.fullTextViewer.displayFullTextViewer(
+                {
+                    pgId:    candidate.pgId || candidate.id,
+                    title:   candidate.title,
+                    authors: candidate.authors,
+                    source_file: candidate.metadata?.textId,
+                    source: candidate.source,
+                    type:   candidate.type,
+                    text:   candidate.text,
+                    // 青空文庫用メタ情報
+                    authorId: candidate.metadata?.authorId,
+                    workId:   candidate.metadata?.workId
+                },
+                {
+                    start: candidate.metadata?.lines?.split('-')[0],
+                    end:   candidate.metadata?.lines?.split('-')[1]
+                }
+            );
 
-            // Hide candidates modal
             const citationModal = document.getElementById('citationModal');
-            if (citationModal) {
-                citationModal.style.display = 'none';
-            }
+            if (citationModal) citationModal.style.display = 'none';
 
-            // Show full-text modal
-            const fullTextModal = document.getElementById('fullTextModal');
-            if (fullTextModal) {
-                fullTextModal.style.display = 'flex';
-            }
-
-            // Extract suggested line range from metadata
-            const suggestedLines = this.extractSuggestedLines(candidate);
-
-            // Load the full text viewer
-            await this.fullTextViewer.displayFullTextViewer(candidate.metadata, suggestedLines);
-
-            // Setup full-text viewer event handlers
-            this.setupFullTextViewerHandlers();
+            const viewerModal = document.getElementById('fullTextModal');
+            if (viewerModal) viewerModal.style.display = 'block';
 
         } catch (error) {
             console.error('❌ Error showing full-text viewer:', error);
-            this.showConfirmationDialog(); // Fallback to old method
         }
     }
 
-    /**
-     * Extract suggested lines from candidate metadata
-     */
-    extractSuggestedLines(candidate) {
-        if (!candidate.metadata || !candidate.metadata.lines) {
-            return null;
-        }
-
-        const linesStr = candidate.metadata.lines;
-        const match = linesStr.match(/(\d+)-(\d+)/);
-
-        if (match) {
-            return {
-                start: parseInt(match[1]),
-                end: parseInt(match[2])
-            };
-        }
-
-        // Single line
-        const singleMatch = linesStr.match(/(\d+)/);
-        if (singleMatch) {
-            const line = parseInt(singleMatch[1]);
-            return {
-                start: line,
-                end: line
-            };
-        }
-
-        return null;
-    }
-
-    /**
-     * Setup event handlers for full-text viewer
-     */
-    setupFullTextViewerHandlers() {
-        // Cancel button
-        const cancelBtn = document.getElementById('cancelFullTextViewer');
-        if (cancelBtn) {
-            cancelBtn.onclick = () => {
-                this.closeFullTextViewer();
-            };
-        }
-
-        // Confirm selection button
-        const confirmBtn = document.getElementById('confirm-selection');
-        if (confirmBtn) {
-            confirmBtn.onclick = () => {
-                this.confirmFullTextSelection();
-            };
-        }
-
-        // Close on outside click
-        const fullTextModal = document.getElementById('fullTextModal');
-        if (fullTextModal) {
-            fullTextModal.onclick = (e) => {
-                if (e.target === fullTextModal) {
-                    this.closeFullTextViewer();
-                }
-            };
-        }
-
-        // ESC key handler
-        const escHandler = (e) => {
-            if (e.key === 'Escape') {
-                this.closeFullTextViewer();
-                document.removeEventListener('keydown', escHandler);
-            }
-        };
-        document.addEventListener('keydown', escHandler);
-    }
-
-    /**
-     * Confirm selection from full-text viewer
-     */
-    async confirmFullTextSelection() {
+    confirmSelection() {
         if (!this.fullTextViewer) {
-            console.error('❌ Full-text viewer not available');
+            console.error('Full-text viewer not available');
             return;
         }
 
         const selection = this.fullTextViewer.getCurrentSelection();
+
         if (!selection) {
-            alert('Please select text lines first');
+            console.warn('No selection made');
             return;
         }
 
-        console.log('✅ User confirmed selection:', selection);
+        console.log('✅ Selection confirmed:', selection);
 
-        // Update candidate with user's selection
-        this.selectedCandidate.text = selection.text;
-        this.selectedCandidate.metadata.lines = `${selection.start}-${selection.end}`;
-
-        // Close full-text viewer
-        this.closeFullTextViewer();
-
-        // Proceed with confirmation
-        this.showConfirmationDialog();
-    }
-
-    /**
-     * Close full-text viewer
-     */
-    closeFullTextViewer() {
-        const fullTextModal = document.getElementById('fullTextModal');
-        if (fullTextModal) {
-            fullTextModal.style.display = 'none';
+        const sourceInfoField = document.getElementById('sourceInfo');
+        if (sourceInfoField) {
+            sourceInfoField.value = selection.text;
+            sourceInfoField.dispatchEvent(new Event('input', { bubbles: true }));
         }
 
-        // Show candidates modal again
-        const citationModal = document.getElementById('citationModal');
-        if (citationModal) {
-            citationModal.style.display = 'flex';
-        }
-    }
-
-    /**
-     * Show confirmation dialog
-     */
-    showConfirmationDialog() {
-        const targetText = document.getElementById('targetText').value;
-
-        // Hide candidates modal
-        const citationModal = document.getElementById('citationModal');
-        if (citationModal) citationModal.style.display = 'none';
-
-        // Populate confirmation dialog
-        const selectedSourcePreview = document.getElementById('selectedSourcePreview');
-        const targetTextPreview = document.getElementById('targetTextPreview');
-
-        if (selectedSourcePreview && this.selectedCandidate) {
-            selectedSourcePreview.innerHTML = `
-                <strong>${this.getSourceTitle(this.selectedCandidate)}</strong><br>
-                ${this.selectedCandidate.text}
-            `;
-        }
-
-        if (targetTextPreview) {
-            targetTextPreview.textContent = targetText || 'No target text selected';
-        }
-
-        // Show confirmation modal
-        const confirmationModal = document.getElementById('confirmationModal');
-        if (confirmationModal) {
-            confirmationModal.style.display = 'flex';
-        }
-    }
-
-    /**
-     * Confirm selection and save the pair
-     */
-    async confirmSelection() {
-        console.log('💾 STEP 6: Confirm selection and save');
-
-        if (!this.selectedCandidate) {
-            console.error('❌ No candidate selected');
-            return;
-        }
-
-        const confirmButton = document.getElementById('confirmSelection');
-        const targetText = document.getElementById('targetText').value.trim();
-        const sourceText = this.selectedCandidate.text;
-        const metadata = this.selectedCandidate.metadata;
-
-        console.log('📝 Save data preparation:');
-        console.log('Target text length:', targetText.length);
-        console.log('Source text length:', sourceText.length);
-        console.log('Target text preview:', targetText.substring(0, 100) + '...');
-        console.log('Source text preview:', sourceText.substring(0, 100) + '...');
-        console.log('Metadata:', metadata);
-
-        // Validate inputs
-        if (!targetText) {
-            console.log('❌ No target text provided');
-            alert('Please select target text first before confirming the source.');
-            return;
-        }
-
-        if (!sourceText) {
-            console.log('❌ No source text in candidate');
-            alert('Selected source has no text content.');
-            return;
-        }
-
-        try {
-            // Disable button and show loading state
-            if (confirmButton) {
-                confirmButton.disabled = true;
-                confirmButton.textContent = 'Saving...';
+        window.dispatchEvent(new CustomEvent('citationSelected', {
+            detail: {
+                source: this.selectedCandidate?.title,
+                authors: this.selectedCandidate?.authors,
+                lines: `${selection.start}-${selection.end}`,
+                text: selection.text
             }
+        }));
 
-            console.log('💾 Attempting to save source-target pair...');
-
-            // Save the source-target pair
-            const saveSuccess = await this.saveSourceTextPair(targetText, sourceText, metadata);
-
-            console.log('📊 Save operation result:', saveSuccess);
-
-            if (saveSuccess) {
-                console.log('✅ Save successful, closing modals');
-
-                // Close modals only on successful save
-                this.closeAllModals();
-
-                // Show success message
-                this.showCitationStatus('Source linked and saved successfully!', 'success');
-
-                // Clear selection
-                this.selectedCandidate = null;
-
-                console.log('🎉 Citation pair saved successfully');
-            } else {
-                throw new Error('Save operation returned false');
-            }
-
-        } catch (error) {
-            console.error('❌ Error confirming selection:', error);
-            console.trace('Error stack trace');
-
-            // Show error message to user
-            const errorMessage = error.message || 'Failed to save the source-target pair';
-            alert(`Error: ${errorMessage}\n\nPlease try again or check the console for details.`);
-
-            // Re-enable button
-            if (confirmButton) {
-                confirmButton.disabled = false;
-                confirmButton.textContent = 'Confirm & Save';
-            }
-
-            // Don't close modal on error
-        }
+        this.closeAllModals();
     }
 
-    /**
-     * Save source-target text pair
-     */
-    saveSourceTextPair(targetText, sourceText, metadata) {
-        try {
-            // Get the main app instance
-            const app = window.poetryApp;
-
-            if (!app) {
-                throw new Error('Main application not found');
-            }
-
-            // Create data entry in the same format as the existing app
-            const dataEntry = {
-                id: Date.now(),
-                timestamp: new Date().toISOString(),
-                page: app.currentPage || 1,
-                targetText: targetText || '',
-                sourceInfo: sourceText || '',
-                // Add citation metadata for enhanced tracking
-                citationMetadata: {
-                    source: metadata.source || 'citation_lookup',
-                    confidence: this.selectedCandidate?.confidence || 0,
-                    author: metadata.author || '',
-                    title: metadata.title || '',
-                    book: metadata.book || '',
-                    chapter: metadata.chapter || '',
-                    verses: metadata.verses || '',
-                    lines: metadata.lines || '',
-                    translation: metadata.translation || ''
-                }
-            };
-
-            // Add to the app's saved data
-            app.savedData.push(dataEntry);
-
-            // Save to localStorage using app's method
-            app.saveToStorage();
-
-            // Update the data display using app's method
-            app.updateDataDisplay();
-
-            // Update the app's status
-            app.updateStatus('Source-target pair saved successfully via citation lookup!');
-
-            // Clear the current selection in the app
-            app.clearCurrentSelection();
-
-            console.log('Successfully saved citation pair:', dataEntry);
-
-            return true;
-
-        } catch (error) {
-            console.error('Error saving source-target pair:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Close all modals
-     */
     closeAllModals() {
-        const citationModal = document.getElementById('citationModal');
-        const confirmationModal = document.getElementById('confirmationModal');
-
-        if (citationModal) {
-            citationModal.style.display = 'none';
-        }
-
-        if (confirmationModal) {
-            confirmationModal.style.display = 'none';
-        }
-
-        // Reset modal state
-        this.resetModalState();
-    }
-
-    /**
-     * Reset modal state and cleanup
-     */
-    resetModalState() {
-        // Clear current selection
-        this.selectedCandidate = null;
-        this.currentCandidates = [];
-
-        // Reset tab selection
-        this.currentSourceType = 'all';
-        const tabButtons = document.querySelectorAll('.tab-btn');
-        tabButtons.forEach(btn => {
-            if (btn.dataset.tab === 'all') {
-                btn.classList.add('active');
-            } else {
-                btn.classList.remove('active');
-            }
+        document.querySelectorAll('[id*="Modal"]').forEach(modal => {
+            modal.style.display = 'none';
         });
-
-        // Reset confirm button
-        const confirmButton = document.getElementById('confirmSelection');
-        if (confirmButton) {
-            confirmButton.disabled = false;
-            confirmButton.textContent = 'Confirm & Save';
-        }
-
-        // Clear any loading states
-        const loadingCandidates = document.getElementById('loadingCandidates');
-        const candidatesList = document.getElementById('candidatesList');
-        const noCandidates = document.getElementById('noCandidates');
-
-        if (loadingCandidates) loadingCandidates.style.display = 'none';
-        if (candidatesList) candidatesList.innerHTML = '';
-        if (noCandidates) noCandidates.style.display = 'none';
-
-        // Clear citation query
-        const queriedCitation = document.getElementById('queriedCitation');
-        if (queriedCitation) queriedCitation.textContent = '';
-
-        // Clear preview content
-        const selectedSourcePreview = document.getElementById('selectedSourcePreview');
-        const targetTextPreview = document.getElementById('targetTextPreview');
-
-        if (selectedSourcePreview) selectedSourcePreview.innerHTML = '';
-        if (targetTextPreview) targetTextPreview.textContent = '';
-
-        console.log('Modal state reset completed');
-    }
-
-    /**
-     * Setup modal event listeners
-     */
-    setupModalEventListeners() {
-        // Close buttons
-        document.getElementById('closeCitationModal')?.addEventListener('click', () => {
-            this.closeAllModals();
-        });
-
-        document.getElementById('closeConfirmationModal')?.addEventListener('click', () => {
-            this.closeAllModals();
-        });
-
-        // Cancel buttons
-        document.getElementById('cancelCitationLookup')?.addEventListener('click', () => {
-            this.closeAllModals();
-        });
-
-        document.getElementById('cancelSelection')?.addEventListener('click', () => {
-            document.getElementById('confirmationModal').style.display = 'none';
-            document.getElementById('citationModal').style.display = 'flex';
-        });
-
-        // Confirm button
-        const confirmButton = document.getElementById('confirmSelection');
-        if (confirmButton) {
-            confirmButton.addEventListener('click', (e) => {
-                console.log('Confirm button clicked', e);
-                this.confirmSelection();
-            });
-            console.log('Confirm button event listener attached successfully');
-        } else {
-            console.error('Confirm button not found during setup');
-        }
-
-        // Retry button
-        document.getElementById('retryLookup')?.addEventListener('click', () => {
-            this.closeAllModals();
-            // Focus back on source info textarea
-            document.getElementById('sourceInfo')?.focus();
-        });
-
-        // Click outside to close
-        document.getElementById('citationModal')?.addEventListener('click', (e) => {
-            if (e.target.id === 'citationModal') {
-                this.closeAllModals();
-            }
-        });
-
-        document.getElementById('confirmationModal')?.addEventListener('click', (e) => {
-            if (e.target.id === 'confirmationModal') {
-                this.closeAllModals();
-            }
-        });
-    }
-
-    /**
-     * Setup tab event listeners
-     */
-    setupTabEventListeners() {
-        const tabButtons = document.querySelectorAll('.tab-btn');
-
-        tabButtons.forEach(button => {
-            button.addEventListener('click', () => {
-                // Update active tab
-                tabButtons.forEach(btn => btn.classList.remove('active'));
-                button.classList.add('active');
-
-                // Update current source type
-                this.currentSourceType = button.dataset.tab;
-
-                // Re-render candidates with new filter
-                this.renderCandidates(this.currentCandidates);
-            });
-        });
+        console.log('All modals closed');
     }
 }
 
-// Export CitationIntegration class to window (CRITICAL for patching)
 window.CitationIntegration = CitationIntegration;
 
-// Initialize citation integration when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.citationIntegration = new CitationIntegration();
 });
+

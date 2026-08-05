@@ -3,9 +3,10 @@
 
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/home/favicon.svg">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>抽出くん - Citation Extractor</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20260714143441">
     <link rel="stylesheet" href="full-text-viewer.css">
     <link rel="stylesheet" href="rating-styles.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -44,16 +45,21 @@
             ">
                 <span style="color:#9ca3af;font-weight:600">🔗</span>
                 <span id="rdmStatusBadge" style="cursor:pointer">
-                    <span style="color:#9ca3af">🏛 RDM: 確認中...</span>
+                    <span style="color:#9ca3af">🏛 RDM: Checking...</span>
                 </span>
                 <span style="color:#d1d5db">|</span>
                 <span id="gdriveStatusBadge" style="cursor:pointer">
-                    <span style="color:#9ca3af">☁️ Drive: 確認中...</span>
+                    <span style="color:#9ca3af">☁️ Drive: Checking...</span>
                 </span>
             </div>
 
             <!-- 右：作成者・リンク -->
             <div style="display:flex;align-items:center;gap:14px;font-size:0.75rem;color:#6b7280">
+                <a href="/home/" title="分析さん トップページへ / Back to Home"
+                   style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;
+                          color:#3b6ea5;font-weight:600;font-size:0.9rem;
+                          padding:5px 12px;border:1px solid #cdd9e6;border-radius:9px;
+                          background:#f4f8fc;margin-right:4px;">🏠 Home</a>
                 <span style="color:#9ca3af">Haruka Tsutsui</span>
                 <a href="https://github.com/haruka0221/citation-extractor"
                    target="_blank"
@@ -90,18 +96,18 @@
                         padding:8px 12px; background:#f0f4ff;
                         border-bottom:1px solid #d0d8f0;
                         flex-wrap:wrap;">
-                        <span style="font-size:0.85rem;color:#555;font-weight:600">📄 PDFを開く：</span>
+                        <span style="font-size:0.85rem;color:#555;font-weight:600">📄 Open PDF:</span>
                         <button onclick="document.getElementById('fileInput').click()"
                             style="padding:5px 12px;background:#444;color:#eee;border:none;border-radius:5px;cursor:pointer;font-size:0.83rem">
-                            💻 ローカルから選択
+                            💻 From Local
                         </button>
                         <button onclick="openPdfFromCloud('rdm')"
                             style="padding:5px 12px;background:#555;color:#eee;border:none;border-radius:5px;cursor:pointer;font-size:0.83rem">
-                            🏛 GakuninRDMから
+                            🏛 From GakuninRDM
                         </button>
                         <button onclick="openPdfFromCloud('gdrive')"
                             style="padding:5px 12px;background:#555;color:#eee;border:none;border-radius:5px;cursor:pointer;font-size:0.83rem">
-                            ☁️ Google Driveから
+                            ☁️ From Google Drive
                         </button>
                         <input type="file" id="fileInput" accept=".pdf" hidden>
                         <span id="pdfFileName" style="font-size:0.8rem;color:#888;margin-left:4px"></span>
@@ -139,6 +145,11 @@
                             <div class="spinner"></div>
                             <span>Loading page...</span>
                         </div>
+                        <div class="pdf-drop-hint" id="pdfDropHint">
+                            <div class="dnd-icon">📄⬇️</div>
+                            <div class="dnd-main">Drag &amp; drop a PDF file here</div>
+                            <div class="dnd-sub">or use the buttons above (Local / GakuninRDM / Google Drive)</div>
+                        </div>
                         <div class="pdf-container" id="pdfContainer"
                             style="user-select: text; -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text; overflow: visible !important; width: 100% !important; min-width: fit-content !important;">
                             <!-- Pages will be dynamically added here -->
@@ -148,28 +159,152 @@
 
                 <div class="data-panel"
                     style="position: sticky !important; top: 2rem !important; max-height: calc(100vh - 4rem) !important; overflow-y: auto !important; align-self: flex-start !important;">
-                    <div class="metadata-panel" id="metadataPanel" style="display: none;">
-                        <h3>Document Information</h3>
-                        <div class="metadata-inputs">
+                    <!-- AI API settings -->
+                    <div class="ai-settings-panel" id="aiSettingsPanel">
+                        <div class="compact-panel-header">
+                            <div>
+                                <h3>AI-assisted features</h3>
+                                <p class="compact-panel-description">
+                                    AI-assisted extraction
+                                </p>
+                            </div>
+                            <button type="button"
+                                    class="panel-toggle-button"
+                                    id="toggleAiSettings"
+                                    aria-expanded="true"
+                                    aria-controls="aiSettingsBody"
+                                    title="Show or hide AI settings">
+                                <span class="settings-badge is-unset"
+                                      id="apiKeyStatusBadge">
+                                    Not set
+                                </span>
+                                <span class="panel-chevron"
+                                      id="aiSettingsChevron"
+                                      aria-hidden="true">▲</span>
+                            </button>
+                        </div>
+
+                        <div class="ai-settings-fields" id="aiSettingsBody">
+                            <div class="input-group compact-input-group">
+                                <label for="apiProviderSelect">Provider:</label>
+                                <select id="apiProviderSelect">
+                                    <option value="openai">OpenAI</option>
+                                    <option value="anthropic">
+                                        Anthropic (Claude)
+                                    </option>
+                                </select>
+                            </div>
+
+                            <div class="input-group compact-input-group">
+                                <label for="llmApiKeyInput">API key:</label>
+                                <div class="api-key-input-row">
+                                    <input type="password"
+                                           id="llmApiKeyInput"
+                                           placeholder="Paste your API key"
+                                           autocomplete="off"
+                                           autocapitalize="off"
+                                           spellcheck="false">
+
+                                    <button type="button"
+                                            class="api-key-secondary-button"
+                                            id="toggleApiKeyVisibility"
+                                            aria-label="Show API key">
+                                        Show
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="api-key-actions">
+                                <button type="button"
+                                        id="saveApiKeyForTab"
+                                        class="api-key-primary-button">
+                                    Use in this tab
+                                </button>
+
+                                <button type="button"
+                                        id="clearApiKeyForTab"
+                                        class="api-key-secondary-button">
+                                    Clear
+                                </button>
+                            </div>
+
+                            <div class="api-key-message"
+                                 id="apiKeyMessage">
+                                The key is kept only in this browser tab and
+                                is not included in saved or exported data.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Document information -->
+                    <div class="metadata-panel compact-document-panel"
+                         id="metadataPanel">
+                        <div class="compact-panel-header">
+                            <div>
+                                <h3>Document</h3>
+                                <p class="compact-panel-description">
+                                    Bibliographic information
+                                </p>
+                            </div>
+
+                            <button type="button"
+                                    id="toggleMetadataEditor"
+                                    class="document-edit-button"
+                                    aria-expanded="false"
+                                    disabled>
+                                Edit ▼
+                            </button>
+                        </div>
+
+                        <div class="document-summary">
+                            <div class="document-summary-title"
+                                 id="metadataSummaryTitle">
+                                No PDF loaded
+                            </div>
+                            <div class="document-summary-details"
+                                 id="metadataSummaryDetails">
+                                Open a PDF to view document information.
+                            </div>
+                        </div>
+
+                        <div class="metadata-inputs"
+                             id="metadataEditor"
+                             hidden>
                             <div class="input-group">
                                 <label for="bookTitle">Book Title:</label>
-                                <input type="text" id="bookTitle" placeholder="Detected from PDF...">
+                                <input type="text"
+                                       id="bookTitle"
+                                       placeholder="Not detected">
                             </div>
+
                             <div class="input-group">
                                 <label for="bookAuthor">Author:</label>
-                                <input type="text" id="bookAuthor" placeholder="Detected from PDF...">
+                                <input type="text"
+                                       id="bookAuthor"
+                                       placeholder="Not detected">
                             </div>
+
                             <div class="input-group">
                                 <label for="bookSubject">Subject:</label>
-                                <input type="text" id="bookSubject" placeholder="Detected from PDF...">
+                                <input type="text"
+                                       id="bookSubject"
+                                       placeholder="Not detected">
                             </div>
+
                             <div class="input-group">
                                 <label for="bookYear">Year:</label>
-                                <input type="number" id="bookYear" placeholder="YYYY">
+                                <input type="number"
+                                       id="bookYear"
+                                       placeholder="YYYY">
                             </div>
+
                             <div class="metadata-actions">
-                                <button id="updateMetadata">Update Info</button>
-                                <button id="resetMetadata">Reset</button>
+                                <button id="updateMetadata">
+                                    Apply changes
+                                </button>
+                                <button id="resetMetadata">
+                                    Restore detected
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -350,7 +485,7 @@
                         <div class="data-count">0 pairs saved</div>
                         <div id="savedData" class="saved-data-container"></div>
                         <div class="export-controls">
-                            <button id="exportMain" style="width:100%">💾 Export / ☁️ クラウド保存</button>
+                            <button id="exportMain" style="width:100%">💾 Export / ☁️ Save to Cloud</button>
                             <div style="display:none">
                                 <button id="exportDropdownBtn"></button>
                                 <ul id="exportDropdownMenu">
@@ -405,13 +540,7 @@
                 </div>
             </div>
 
-            <div class="source-type-tabs">
-                <button class="tab-btn active" data-tab="all">All Sources</button>
-                <button class="tab-btn" data-tab="literature">Literature</button>
-                <button class="tab-btn" data-tab="bible">Bible</button>
-            </div>
-
-            <div class="candidates-container" id="candidatesContainer">
+            <div class="candidates-container" id="candidatesContainer" style="max-height:60vh; overflow-y:auto;">
                 <div id="citationCandidates"></div>
                 <div class="loading-candidates" id="loadingCandidates">
                     <div class="spinner"></div>
@@ -625,7 +754,8 @@
     <script src="citation-integration.js"></script>
 
     <!-- Step 5: Main Application -->
-    <script src="app.js"></script>
+    <script src="app.js?v=20260714143441"></script>
+    <script src="api-key-ui.js?v=20260714143441"></script>
     <script src="storage-modal.js"></script>
 </body>
 
